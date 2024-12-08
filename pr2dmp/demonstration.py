@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
-from movement_primitives.dmp import DMP, CartesianDMP
+from movement_primitives.dmp import CartesianDMP
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 from skrobot.coordinates import Transform
@@ -21,6 +21,25 @@ def project_root_path(project_name: str) -> Path:
     root = root_path() / project_name
     root.mkdir(exist_ok=True)
     return root
+
+
+@dataclass
+class DMPParameter:
+    forcing_term_pos: Optional[np.ndarray] = None
+    forcing_term_rot: Optional[np.ndarray] = None
+    goal_pos_diff: Optional[np.ndarray] = None
+    # NOTE: goal rot diff is not used in the current implementation
+
+    def to_vector(self) -> np.ndarray:
+        if self.forcing_term_pos is None:
+            self.forcing_term_pos = np.zeros((3, 10))
+        if self.forcing_term_rot is None:
+            self.forcing_term_rot = np.zeros((3, 10))
+        if self.goal_pos_diff is None:
+            self.goal_pos_diff = np.zeros(3)
+        return np.hstack(
+            [self.forcing_term_pos.flatten(), self.forcing_term_rot.flatten(), self.goal_pos_diff]
+        )
 
 
 @dataclass
@@ -67,7 +86,7 @@ class Demonstration:
         joint_names = dic["joint_names"]
         return cls(ef_frame, trajectory, q_list, joint_names)
 
-    def get_dmp(self, param: Optional[np.ndarray] = None) -> DMP:
+    def get_dmp(self, param: Optional[DMPParameter] = None) -> CartesianDMP:
         # resample
         n_wp_resample = 100  # except the start point
         n_wp_orignal = len(self)
@@ -122,4 +141,12 @@ class Demonstration:
         T = np.linspace(0, 1, 101)
         dmp.imitate(T, Y)
         dmp.configure(start_y=Y[0], goal_y=Y[-1])
+
+        if param is not None:
+            if param.forcing_term_pos is not None:
+                dmp.forcing_term_pos.weights_[:, :] = param.forcing_term_pos
+            if param.forcing_term_rot is not None:
+                dmp.forcing_term_rot.weights_[:, :] = param.forcing_term_rot
+            if param.goal_pos_diff is not None:
+                dmp.goal_y[:3] += param.goal_pos_diff
         return dmp

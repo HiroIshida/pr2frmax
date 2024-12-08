@@ -9,16 +9,17 @@ from skrobot.coordinates.math import wxyz2xyzw
 from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
-from pr2dmp.demonstration import Demonstration
+from pr2dmp.demonstration import Demonstration, DMPParameter
+
+np.random.seed(0)
 
 if __name__ == "__main__":
     robot = PR2(use_tight_joint_limit=False)
     demo = Demonstration.load("test")
-    dmp = demo.get_dmp()
-    dmp.start_y[1] -= 0.1
-    dmp.start_y[2] -= 0.2
+    param = DMPParameter(goal_pos_diff=np.array([0.0, -0.0, -0.05]))
+    dmp = demo.get_dmp(param)
     _, traj = dmp.open_loop()
-    plt.plot(traj)
+    plt.plot(traj[:, :3])
     plt.show()
 
     spec = PR2LarmSpec()
@@ -45,6 +46,7 @@ if __name__ == "__main__":
             max_trial=100 if t == 0 else 1,
         )
         assert ret.success
+        print("solved")
         q_list.append(ret.q)
 
     v = PyrenderViewer()
