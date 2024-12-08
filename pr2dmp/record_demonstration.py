@@ -22,7 +22,7 @@ if __name__ == "__main__":
         if key == "q":
             break
         q_now = ri.angle_vector()
-        co = robot.__dict__[ef_frame].copy_worldcoords()
+        co = ri.robot.__dict__[ef_frame].copy_worldcoords()
         tf_ef_to_world = Transform(co.worldpos(), co.worldrot())
         tf_ef_to_ref = tf_ef_to_world * tf_ref_to_world.inverse_transformation()
         q_list.append(q_now)

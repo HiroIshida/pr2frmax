@@ -4,11 +4,11 @@ from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
-from movement_primitives.dmp import DMP
+from movement_primitives.dmp import DMP, CartesianDMP
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Slerp
 from skrobot.coordinates import Transform
-from skrobot.coordinates.math import matrix2quaternion, wxyz2xyzw
-
-from pr2dmp.trajectory import Trajectory
+from skrobot.coordinates.math import matrix2quaternion, xyzw2wxyz
 
 
 def root_path() -> Path:
@@ -46,13 +46,13 @@ class Demonstration:
         dic["trajectory"] = [transform_to_vector(t).tolist() for t in self.tf_ef_to_ref_list]
         dic["q_list"] = [q.tolist() for q in self.q_list]
         dic["joint_names"] = self.joint_names
-        path = project_root_path(project_name) / f"demonstration.json"
+        path = project_root_path(project_name) / "demonstration.json"
         with open(path, "w") as f:
             json.dump(dic, f, indent=4)
 
     @classmethod
     def load(cls, project_name: str) -> "Demonstration":
-        path = project_root_path(project_name) / f"demonstration.json"
+        path = project_root_path(project_name) / "demonstration.json"
         with open(path, "r") as f:
             dic = json.load(f)
         ef_frame = dic["ef_frame"]
@@ -67,21 +67,59 @@ class Demonstration:
         joint_names = dic["joint_names"]
         return cls(ef_frame, trajectory, q_list, joint_names)
 
-    def fit_dmp(self) -> DMP:
-        # https://github.com/dfki-ric/movement_primitives/blob/031f4f8840f5fc87179ca5ee71f485cc4b74e2d5/examples/sim_cartesian_dmp.py#L7
-        dmp = DMP(n_dims=7, execution_time=1.0, n_weight_per_dim=8, dt=0.1)
-        len(self.tf_ef_to_ref_list)
+    def get_dmp(self, param: Optional[np.ndarray] = None) -> DMP:
+        # resample
+        n_wp_resample = 100  # except the start point
+        n_wp_orignal = len(self)
+        n_segment_original = n_wp_orignal - 1
+        m_assign_base = n_wp_resample // n_segment_original
+        n_wp_arr = np.array([m_assign_base] * n_segment_original)
+        rem = n_wp_resample % n_segment_original
+        for i in range(rem):
+            n_wp_arr[i] += 1
+        assert sum(n_wp_arr) == n_wp_resample
 
         vec_list = []
-        for tf_ef_to_ref in self.tf_ef_to_ref_list:
-            pos = tf_ef_to_ref.translation
-            rot = tf_ef_to_ref.rotation
-            wxyz = matrix2quaternion(rot)
-            xyzw = wxyz2xyzw(wxyz)
-            vec = np.hstack([pos, xyzw])
-            vec_list.append(vec)
-        traj = Trajectory(np.array(vec_list))
-        interped = traj.resample(100).numpy()
-        ts = np.linspace(0, 1, 100)
-        dmp.imitate(ts, interped)
-        dmp.configure(start_y=interped[0], goal_y=interped[-1])
+
+        # the first point
+        tf = self.tf_ef_to_ref_list[0]
+        pos = tf.translation
+        rot = tf.rotation
+        wxyz = matrix2quaternion(rot)
+        vec = np.hstack([pos, wxyz])
+        vec_list.append(vec)
+
+        for i_segment in range(n_segment_original):
+            tf_start = self.tf_ef_to_ref_list[i_segment]
+            tf_end = self.tf_ef_to_ref_list[i_segment + 1]
+            pos_start, rot_start = tf_start.translation, tf_start.rotation
+            pos_end, rot_end = tf_end.translation, tf_end.rotation
+
+            tlin = np.linspace(0, 1, n_wp_arr[i_segment] + 1)
+
+            # position
+            pos_list = []
+            for t in tlin[1:]:
+                pos = pos_start * (1 - t) + pos_end * t
+                pos_list.append(pos)
+
+            # rotation
+            rotations = R.from_matrix(np.array([rot_start, rot_end]))
+            slerp = Slerp(np.array([0, 1]), rotations)
+            interp_rots = slerp(tlin[1:])
+            quat_list = []
+            for rot in interp_rots:
+                xyzw = rot.as_quat()
+                quat_list.append(xyzw2wxyz(xyzw))
+
+            assert len(pos_list) == len(quat_list)
+            for pos, quat in zip(pos_list, quat_list):
+                vec = np.hstack([pos, quat])
+                vec_list.append(vec)
+
+        dmp = CartesianDMP(1.0, dt=0.01, n_weights_per_dim=10, int_dt=0.0001)
+        Y = np.array(vec_list)
+        T = np.linspace(0, 1, 101)
+        dmp.imitate(T, Y)
+        dmp.configure(start_y=Y[0], goal_y=Y[-1])
+        return dmp
