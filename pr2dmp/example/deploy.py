@@ -14,18 +14,25 @@ from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.demonstration import Demonstration
 from pr2dmp.example.fridge_detector import FridgeDetector
+from pr2dmp.pr2_controller_utils import set_controller_mode
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", action="store_true", help="move real robot")
     args = parser.parse_args()
 
+    if args.real:
+        set_controller_mode("rarm", "tight")
+        set_controller_mode("larm", "tight")
+
     demo = Demonstration.load("fridge_door_open")
     pr2 = PR2()
+    pr2.angle_vector(demo.q_list[0])
     ri = PR2ROSRobotInterface(pr2)
     detector = FridgeDetector()
     tf_fridge_to_basefootprint = detector.get_current_transform()
     spec = PR2RarmSpec()
+    spec.reflect_skrobot_model_to_kin(pr2)
     lb, ub = spec.angle_bounds()
     dic = {name: angle for name, angle in zip(demo.joint_names, demo.q_list[0])}
     q_init = np.array([dic[name] for name in spec.control_joint_names])
@@ -44,7 +51,11 @@ if __name__ == "__main__":
         q_control_list.append(ret.q)
 
     if args.real:
-        pass
+        for q in q_control_list:
+            set_robot_state(pr2, spec.control_joint_names, q)
+            ri.angle_vector(pr2.angle_vector(), time=1)
+            ri.wait_interpolation()
+            time.sleep(3)
     else:
         v = PyrenderViewer()
         co = Coordinates(

@@ -5,11 +5,13 @@ from skrobot.models.pr2 import PR2
 
 from pr2dmp.demonstration import Demonstration
 from pr2dmp.example.fridge_detector import FridgeDetector
+from pr2dmp.pr2_controller_utils import set_controller_mode
 from pr2dmp.utils import RichTrasnform
 
 if __name__ == "__main__":
     pr2 = PR2()
     ri = PR2ROSRobotInterface(pr2)
+    set_controller_mode("rarm", "loose")
     detector = FridgeDetector()
     pr2.angle_vector(ri.angle_vector())
     tf_fridge_to_basefootprint = detector.get_current_transform()

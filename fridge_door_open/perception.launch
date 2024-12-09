@@ -1,0 +1,28 @@
+<launch>
+  <arg name="camera" default="kinect_head" />
+  <arg name="use_throttle" default="true"/>
+  <arg name="throttle_prefix" default="throttled/" if="$(arg use_throttle)"/>
+  <arg name="throttle_prefix" default=""       unless="$(arg use_throttle)"/>
+  <arg name="input_image" default="/$(arg camera)/rgb/$(arg throttle_prefix)image_rect_color"/>
+  <arg name="input_camera_info" default="/$(arg camera)/rgb/$(arg throttle_prefix)camera_info"/>
+
+  <group ns="/$(arg camera)/rgb">
+    <node name="fridge_demo_sift" pkg="imagesift" type="imagesift"
+          launch-prefix="nice -n +10" output="screen">
+      <remap from="image" to="$(arg input_image)" />
+      <remap from="camera_info" to="$(arg input_camera_info)"/>
+      <remap from="mask" to="attention_clipper/output/mask"/>
+    </node>
+    
+    <node name="fridge_detector" pkg="jsk_perception" type="point_pose_extractor">
+      <rosparam subst_value="true">
+        template_filename: $(find pr2frmax)/fridge_door_open/data/openni_rgb_fridge.png
+        window_name: fridge_handle_upper
+        object_width: 0.231
+        object_height: 0.196
+        relative_pose: '0.22 0.05 0.075  0.707107 0 -0.707107 0'
+        viewer_window: false
+      </rosparam>
+    </node>
+  </group>
+</launch>
