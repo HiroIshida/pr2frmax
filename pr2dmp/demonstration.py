@@ -7,8 +7,9 @@ import numpy as np
 from movement_primitives.dmp import CartesianDMP
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
-from skrobot.coordinates import Transform
 from skrobot.coordinates.math import matrix2quaternion, xyzw2wxyz
+
+from pr2dmp.utils import RichTrasnform
 
 
 def root_path() -> Path:
@@ -45,9 +46,12 @@ class DMPParameter:
 @dataclass
 class Demonstration:
     ef_frame: str
-    tf_ef_to_ref_list: List[Transform]
+    ref_frame: str
+    tf_ef_to_ref_list: List[RichTrasnform]
     q_list: Optional[List[np.ndarray]]
-    joint_names: Optional[List[str]]
+    joint_names: List[str]
+    gripper_width: float
+    tf_ref_to_base: Optional[RichTrasnform] = None  # aux info
 
     def __post_init__(self) -> None:
         assert len(self.tf_ef_to_ref_list) == len(self.q_list)
@@ -56,15 +60,19 @@ class Demonstration:
         return len(self.tf_ef_to_ref_list)
 
     def save(self, project_name: str) -> None:
-        def transform_to_vector(t: Transform) -> np.ndarray:
+        def transform_to_vector(t: RichTrasnform) -> np.ndarray:
             rot = t.rotation
             return np.hstack([t.translation, rot.flatten()])
 
         dic = {}
         dic["ef_frame"] = self.ef_frame
+        dic["ref_frame"] = self.ref_frame
         dic["trajectory"] = [transform_to_vector(t).tolist() for t in self.tf_ef_to_ref_list]
         dic["q_list"] = [q.tolist() for q in self.q_list]
         dic["joint_names"] = self.joint_names
+        dic["gripper_width"] = self.gripper_width
+        if self.tf_ref_to_base is not None:
+            dic["tf_ref_to_base"] = transform_to_vector(self.tf_ref_to_base).tolist()
         path = project_root_path(project_name) / "demonstration.json"
         with open(path, "w") as f:
             json.dump(dic, f, indent=4)
@@ -75,16 +83,28 @@ class Demonstration:
         with open(path, "r") as f:
             dic = json.load(f)
         ef_frame = dic["ef_frame"]
+        ref_frame = dic["ref_frame"]
         trajectory = []
         for t in dic["trajectory"]:
             translation = t[:3]
             rotation = t[3:]
             rot = np.array(rotation).reshape(3, 3)
-            t = Transform(translation, rot)
+            t = RichTrasnform(translation, rot, frame_from=ef_frame, frame_to=ref_frame)
             trajectory.append(t)
         q_list = [np.array(q) for q in dic["q_list"]]
         joint_names = dic["joint_names"]
-        return cls(ef_frame, trajectory, q_list, joint_names)
+        gripper_width = dic["gripper_width"]
+        if "tf_ref_to_base" in dic:
+            t = dic["tf_ref_to_base"]
+            translation = t[:3]
+            rotation = t[3:]
+            rot = np.array(rotation).reshape(3, 3)
+            tf_ref_to_base = RichTrasnform(
+                translation, rot, frame_from=ref_frame, frame_to="base_footprint"
+            )
+        return cls(
+            ef_frame, ref_frame, trajectory, q_list, joint_names, gripper_width, tf_ref_to_base
+        )
 
     def get_dmp(self, param: Optional[DMPParameter] = None) -> CartesianDMP:
         # resample

@@ -1,6 +1,8 @@
 import time
 
 import rospy
+import tf2_geometry_msgs
+import tf2_ros
 from geometry_msgs.msg import PoseStamped
 from posedetection_msgs.msg import ObjectDetection
 from rospy import Subscriber
@@ -8,36 +10,13 @@ from rospy import Subscriber
 from pr2dmp.utils import RichTrasnform
 
 
-class PoseQueue:
-    def __init__(self, max_size=10):
-        self.queue = []
-        self.max_size = max_size
-
-    def append(self, pose: PoseStamped):
-        if len(self.queue) > self.max_size:
-            self.queue.pop(0)
-        self.queue.append(pose)
-
-    def get_average_pose(self) -> PoseStamped:
-        if len(self.queue) == 0:
-            return None
-
-        x = sum([pose.pose.position.x for pose in self.queue]) / len(self.queue)
-        y = sum([pose.pose.position.y for pose in self.queue]) / len(self.queue)
-        z = sum([pose.pose.position.z for pose in self.queue]) / len(self.queue)
-
-        pose = PoseStamped()
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.position.z = z
-        return pose
-
-
 class FridgeDetector:
     def __init__(self):
         topic_name = "/kinect_head/rgb/ObjectDetection"
         self.sub = Subscriber(topic_name, ObjectDetection, self.callback_object_detection)
         self.pose = None
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         rospy.loginfo("FridgeDetector initialized")
 
     def get_current_transform(self) -> RichTrasnform:
@@ -49,7 +28,11 @@ class FridgeDetector:
             elapsed_time = time.time() - ts
             if elapsed_time > timeout:
                 assert False
-        return RichTrasnform.from_ros_pose_stamped(self.pose, "fridge")
+        transform = self.tf_buffer.lookup_transform(
+            "base_footprint", self.pose.header.frame_id, rospy.Time(0), rospy.Duration(1.0)
+        )
+        transformed_pose = tf2_geometry_msgs.do_transform_pose(self.pose, transform)
+        return RichTrasnform.from_ros_pose_stamped(transformed_pose, "fridge")
 
     def reset(self):
         self.pose = None
@@ -59,7 +42,7 @@ class FridgeDetector:
             transform = msg.objects[0].pose
             pose = PoseStamped(header=msg.header, pose=transform)
             self.pose = pose
-            rospy.loginfo(f"object detected")
+            rospy.loginfo("object detected")
 
 
 if __name__ == "__main__":
