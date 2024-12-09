@@ -42,7 +42,7 @@ if __name__ == "__main__":
             lb,
             ub,
             q_seed=q_list[-1],
-            config=IKConfig(ftol=1e-7, acceptable_error=1e-6),
+            config=IKConfig(ftol=1e-7, acceptable_error=1e-4),
             max_trial=100 if t == 0 else 1,
         )
         assert ret.success
