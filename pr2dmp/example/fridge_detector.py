@@ -21,7 +21,7 @@ class FridgeDetector:
 
     def get_current_transform(self) -> RichTrasnform:
         self.reset()
-        timeout = 5
+        timeout = 10
         ts = time.time()
         while self.pose is None:
             rospy.sleep(0.01)

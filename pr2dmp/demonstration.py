@@ -207,9 +207,10 @@ class Demonstration:
 
     def get_dmp_trajectory_pr2(
         self,
-        tf_ref_to_base: Optional[RichTrasnform] = None,
+        tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
+        q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
+        *,
         arm: Literal["larm", "rarm"] = "rarm",
-        q_whole_init: Optional[np.ndarray] = None,
         param: Optional[DMPParameter] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -238,6 +239,8 @@ class Demonstration:
         pr2.angle_vector(q_whole_init)
         dic = {jname: jangle for jname, jangle in zip(self.joint_names, q_whole_init)}
         q_init = np.array([dic[jname] for jname in spec.control_joint_names])
+
+        spec.reflect_skrobot_model_to_kin(pr2)
 
         lb, ub = spec.angle_bounds()
         ik_config = IKConfig(ftol=1e-7, acceptable_error=1e-4)

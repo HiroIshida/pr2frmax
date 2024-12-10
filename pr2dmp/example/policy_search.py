@@ -7,6 +7,11 @@ from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.demonstration import Demonstration
+from pr2dmp.example.fridge_detector import FridgeDetector
+from pr2dmp.pr2_controller_utils import (
+    set_arm_controller_mode,
+    set_gripper_controller_mode,
+)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -18,7 +23,20 @@ if __name__ == "__main__":
     robot = PR2(use_tight_joint_limit=False)
 
     if args.real:
+        set_arm_controller_mode("rarm", "tight")
+        set_arm_controller_mode("larm", "tight")
+        set_gripper_controller_mode("rarm", "tight")
+        set_gripper_controller_mode("larm", "tight")
         ri = PR2ROSRobotInterface(robot)
+        ri.angle_vector(demo.q_list[0])
+        ri.wait_interpolation()
+        detector = FridgeDetector()
+        tf_ref_to_base = detector.get_current_transform()
+        qs, gs = demo.get_dmp_trajectory_pr2(tf_ref_to_base, ri.angle_vector())
+        for q, g in zip(qs, gs):
+            ri.move_gripper("rarm", g - 0.008, effort=100)
+            ri.angle_vector(q, time=0.3)
+            time.sleep(0.3)
     else:
         # here we use the recorded ref_to_base pose
         qs, gs = demo.get_dmp_trajectory_pr2()
