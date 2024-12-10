@@ -50,7 +50,7 @@ class Demonstration:
     tf_ef_to_ref_list: List[RichTrasnform]
     q_list: Optional[List[np.ndarray]]
     joint_names: List[str]
-    gripper_width: float
+    gripper_width_list: List[float]
     tf_ref_to_base: Optional[RichTrasnform] = None  # aux info
 
     def __post_init__(self) -> None:
@@ -70,7 +70,7 @@ class Demonstration:
         dic["trajectory"] = [transform_to_vector(t).tolist() for t in self.tf_ef_to_ref_list]
         dic["q_list"] = [q.tolist() for q in self.q_list]
         dic["joint_names"] = self.joint_names
-        dic["gripper_width"] = self.gripper_width
+        dic["gripper_width"] = self.gripper_width_list
         if self.tf_ref_to_base is not None:
             dic["tf_ref_to_base"] = transform_to_vector(self.tf_ref_to_base).tolist()
         path = project_root_path(project_name) / "demonstration.json"

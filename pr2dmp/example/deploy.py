@@ -14,7 +14,10 @@ from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.demonstration import Demonstration
 from pr2dmp.example.fridge_detector import FridgeDetector
-from pr2dmp.pr2_controller_utils import set_controller_mode
+from pr2dmp.pr2_controller_utils import (
+    set_arm_controller_mode,
+    set_gripper_controller_mode,
+)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -22,8 +25,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.real:
-        set_controller_mode("rarm", "tight")
-        set_controller_mode("larm", "tight")
+        set_arm_controller_mode("rarm", "tight")
+        set_arm_controller_mode("larm", "tight")
+        set_gripper_controller_mode("rarm", "tight")
+        set_gripper_controller_mode("larm", "tight")
 
     demo = Demonstration.load("fridge_door_open")
     pr2 = PR2()
@@ -51,11 +56,11 @@ if __name__ == "__main__":
         q_control_list.append(ret.q)
 
     if args.real:
-        for q in q_control_list:
+        for q, gw in zip(q_control_list, demo.gripper_width_list):
             set_robot_state(pr2, spec.control_joint_names, q)
+            ri.move_gripper("rarm", gw - 0.008, effort=100)
             ri.angle_vector(pr2.angle_vector(), time=1)
-            ri.wait_interpolation()
-            time.sleep(3)
+            time.sleep(0.8)
     else:
         v = PyrenderViewer()
         co = Coordinates(

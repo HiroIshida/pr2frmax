@@ -15,7 +15,37 @@ def get_controller_states() -> Dict[str, bool]:
     return {cont: (state == "running") for (cont, state) in zip(resp.controllers, resp.state)}
 
 
-def set_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight", "loose"]) -> None:
+def set_gripper_controller_mode(
+    arm: Literal["rarm", "larm"], mode: Literal["tight", "loose"]
+) -> None:
+    if arm == "rarm":
+        controller_name = "r_gripper_controller"
+    else:
+        controller_name = "l_gripper_controller"
+    state = get_controller_states()
+    if mode == "tight":
+        if state[controller_name]:
+            rospy.loginfo(f"{controller_name} is already active")
+            return
+        sp = rospy.ServiceProxy("/pr2_controller_manager/switch_controller", SwitchController)
+        resp = sp(start_controllers=[controller_name], stop_controllers=[])
+        rospy.loginfo("controller service response: {}".format(resp))
+        state = get_controller_states()
+        assert not state[controller_name]
+    elif mode == "loose":
+        if not state[controller_name]:
+            rospy.loginfo(f"{controller_name} is already inactive")
+            return
+        sp = rospy.ServiceProxy("/pr2_controller_manager/switch_controller", SwitchController)
+        resp = sp(start_controllers=[], stop_controllers=[controller_name])
+        rospy.loginfo("controller service response: {}".format(resp))
+        state = get_controller_states()
+        assert not state[controller_name]
+    else:
+        raise ValueError("mode must be 'tight' or 'loose")
+
+
+def set_arm_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight", "loose"]) -> None:
     """Set the controller mode for a specified arm.
 
     Args:
@@ -56,8 +86,8 @@ def set_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight", "lo
     rospy.loginfo("controller service response: {}".format(resp))
 
     state = get_controller_states()
-    assert state[target_controller] == True
-    assert state[other_controller] == False
+    assert state[target_controller]
+    assert state[other_controller]
 
 
 if __name__ == "__main__":
