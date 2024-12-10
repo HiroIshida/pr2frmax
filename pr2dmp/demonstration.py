@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
-from movement_primitives.dmp import CartesianDMP
+from movement_primitives.dmp import DMP, CartesianDMP
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 from skrobot.coordinates.math import matrix2quaternion, xyzw2wxyz
 
+from pr2dmp.trajectory import Trajectory
 from pr2dmp.utils import RichTrasnform
 
 
@@ -28,6 +29,7 @@ def project_root_path(project_name: str) -> Path:
 class DMPParameter:
     forcing_term_pos: Optional[np.ndarray] = None
     forcing_term_rot: Optional[np.ndarray] = None
+    gripper_forcing_term: Optional[np.ndarray] = None
     goal_pos_diff: Optional[np.ndarray] = None
     # NOTE: goal rot diff is not used in the current implementation
 
@@ -36,10 +38,17 @@ class DMPParameter:
             self.forcing_term_pos = np.zeros((3, 10))
         if self.forcing_term_rot is None:
             self.forcing_term_rot = np.zeros((3, 10))
+        if self.gripper_forcing_term is None:
+            self.gripper_forcing_term = np.zeros(10)
         if self.goal_pos_diff is None:
             self.goal_pos_diff = np.zeros(3)
         return np.hstack(
-            [self.forcing_term_pos.flatten(), self.forcing_term_rot.flatten(), self.goal_pos_diff]
+            [
+                self.forcing_term_pos.flatten(),
+                self.forcing_term_rot.flatten(),
+                self.gripper_forcing_term,
+                self.goal_pos_diff,
+            ]
         )
 
 
@@ -106,7 +115,7 @@ class Demonstration:
             ef_frame, ref_frame, trajectory, q_list, joint_names, gripper_width, tf_ref_to_base
         )
 
-    def get_dmp(self, param: Optional[DMPParameter] = None) -> CartesianDMP:
+    def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> CartesianDMP:
         # resample
         n_wp_resample = 100  # except the start point
         n_wp_orignal = len(self)
@@ -156,17 +165,37 @@ class Demonstration:
                 vec = np.hstack([pos, quat])
                 vec_list.append(vec)
 
-        dmp = CartesianDMP(1.0, dt=0.01, n_weights_per_dim=10, int_dt=0.0001)
-        Y = np.array(vec_list)
+        exec_time = 1.0
+        dt = 0.01
+        n_weights_per_dim = 10
         T = np.linspace(0, 1, 101)
-        dmp.imitate(T, Y)
-        dmp.configure(start_y=Y[0], goal_y=Y[-1])
+
+        cartesian_dmp = CartesianDMP(
+            exec_time, dt=dt, n_weights_per_dim=n_weights_per_dim, int_dt=0.0001
+        )
+        Y = np.array(vec_list)
+        cartesian_dmp.imitate(T, Y)
+        cartesian_dmp.configure(start_y=Y[0], goal_y=Y[-1])
+
+        gripper_traj = Trajectory(list(np.array(self.gripper_width_list).reshape(-1, 1)))
+        gripper_traj_resampled = gripper_traj.resample(101)
+        gripper_dmp = DMP(
+            1, execution_time=exec_time, dt=dt, n_weights_per_dim=n_weights_per_dim, int_dt=0.0001
+        )
+        gripper_dmp.imitate(T, gripper_traj_resampled.numpy())
+        gripper_dmp.configure(start_y=gripper_traj_resampled[0], goal_y=gripper_traj_resampled[-1])
 
         if param is not None:
             if param.forcing_term_pos is not None:
-                dmp.forcing_term_pos.weights_[:, :] = param.forcing_term_pos
+                cartesian_dmp.forcing_term_pos.weights_[:, :] = param.forcing_term_pos
             if param.forcing_term_rot is not None:
-                dmp.forcing_term_rot.weights_[:, :] = param.forcing_term_rot
+                cartesian_dmp.forcing_term_rot.weights_[:, :] = param.forcing_term_rot
             if param.goal_pos_diff is not None:
-                dmp.goal_y[:3] += param.goal_pos_diff
-        return dmp
+                cartesian_dmp.goal_y[:3] += param.goal_pos_diff
+            if param.gripper_forcing_term is not None:
+                gripper_dmp.forcing_term.weights_[:, :] = param.gripper_forcing_term
+
+        _, cdmp_trajectory = cartesian_dmp.open_loop()
+        _, gdmp_trajectory = gripper_dmp.open_loop()
+        dmp_trajectory = np.hstack([cdmp_trajectory, gdmp_trajectory])
+        return dmp_trajectory

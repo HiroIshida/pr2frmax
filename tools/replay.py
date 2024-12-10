@@ -17,7 +17,7 @@ if __name__ == "__main__":
     robot = PR2(use_tight_joint_limit=False)
     demo = Demonstration.load("test")
     param = DMPParameter(goal_pos_diff=np.array([0.0, -0.0, -0.05]))
-    dmp = demo.get_dmp(param)
+    dmp = demo.get_dmp_trajectory(param)
     _, traj = dmp.open_loop()
     plt.plot(traj[:, :3])
     plt.show()
