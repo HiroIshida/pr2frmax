@@ -12,7 +12,6 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 from skrobot.coordinates.math import matrix2quaternion, wxyz2xyzw, xyzw2wxyz
 
-from pr2dmp.trajectory import Trajectory
 from pr2dmp.utils import RichTrasnform
 
 
@@ -119,9 +118,39 @@ class Demonstration:
         )
 
     @staticmethod
-    def resample(points: np.ndarray, n_sample: int) -> np.ndarray:
-        traj = Trajectory(points)
-        return traj.resample(n_sample).numpy()
+    def resample_sequence(sequence, k):
+        # uniform resampling
+        n_seq = len(sequence)
+        if k > n_seq:
+            raise ValueError("k cannot be larger than sequence length")
+        if k < 2:
+            raise ValueError("k must be at least 2")
+        interval = (n_seq - 1) / (k - 1)
+        indices = np.round(np.arange(0, k) * interval).astype(int)
+        indices[-1] = min(indices[-1], n_seq - 1)
+        return sequence[indices]
+
+    @staticmethod
+    def get_interpolated(points: np.ndarray, n_wp_resample: int) -> np.ndarray:
+        assert len(points) < n_wp_resample
+        n_wp_orignal = len(points)
+        n_segment_original = n_wp_orignal - 1
+        m_assign_base = n_wp_resample // n_segment_original
+        n_wp_arr = np.array([m_assign_base] * n_segment_original)
+        rem = n_wp_resample % n_segment_original
+        for i in range(rem):
+            n_wp_arr[i] += 1
+        assert sum(n_wp_arr) == n_wp_resample
+        vec_list = []
+        for i_segment in range(n_segment_original):
+            start = points[i_segment]
+            end = points[i_segment + 1]
+            tlin = np.linspace(0, 1, n_wp_arr[i_segment] + 1)
+            for t in tlin[1:]:
+                vec = start * (1 - t) + end * t
+                vec_list.append(vec)
+        assert len(vec_list) == n_wp_resample
+        return np.array(vec_list)
 
     def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
         # resample
@@ -177,7 +206,7 @@ class Demonstration:
 
         exec_time = 1.0
         dt = 0.01
-        n_weights_per_dim = 20
+        n_weights_per_dim = 10
         T = np.linspace(0, 1, 101)
 
         cartesian_dmp = CartesianDMP(
@@ -187,7 +216,7 @@ class Demonstration:
         cartesian_dmp.imitate(T, Y)
         cartesian_dmp.configure(start_y=Y[0], goal_y=Y[-1])
 
-        gripper_traj_resampled = self.resample(
+        gripper_traj_resampled = self.get_interpolated(
             np.array(self.gripper_width_list).reshape(-1, 1), 101
         )
         gripper_dmp = DMP(
@@ -218,7 +247,7 @@ class Demonstration:
         *,
         arm: Literal["larm", "rarm"] = "rarm",
         param: Optional[DMPParameter] = None,
-        n_sample: int = 20,
+        n_sample: int = 40,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
         if tf_ref_to_base is None:
@@ -268,4 +297,7 @@ class Demonstration:
             q_list.append(q_whole)
 
         q_seq = np.array(q_list)
-        return self.resample(q_seq, n_sample), self.resample(gripper_traj, n_sample)
+        # return q_seq, gripper_traj
+        return self.resample_sequence(q_seq, n_sample), self.resample_sequence(
+            gripper_traj, n_sample
+        )

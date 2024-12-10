@@ -1,4 +1,5 @@
 import argparse
+import time
 from typing import Dict, Literal
 
 import rospy
@@ -31,7 +32,8 @@ def set_gripper_controller_mode(
         resp = sp(start_controllers=[controller_name], stop_controllers=[])
         rospy.loginfo("controller service response: {}".format(resp))
         state = get_controller_states()
-        assert not state[controller_name]
+        time.sleep(0.2)
+        assert state[controller_name]
     elif mode == "loose":
         if not state[controller_name]:
             rospy.loginfo(f"{controller_name} is already inactive")
@@ -40,6 +42,7 @@ def set_gripper_controller_mode(
         resp = sp(start_controllers=[], stop_controllers=[controller_name])
         rospy.loginfo("controller service response: {}".format(resp))
         state = get_controller_states()
+        time.sleep(0.2)
         assert not state[controller_name]
     else:
         raise ValueError("mode must be 'tight' or 'loose")
@@ -85,6 +88,7 @@ def set_arm_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight",
     resp = sp(start_controllers=[target_controller], stop_controllers=[other_controller])
     rospy.loginfo("controller service response: {}".format(resp))
 
+    time.sleep(1.0)
     state = get_controller_states()
     assert state[target_controller]
     assert state[other_controller]
