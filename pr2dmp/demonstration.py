@@ -118,6 +118,11 @@ class Demonstration:
             ef_frame, ref_frame, trajectory, q_list, joint_names, gripper_width, tf_ref_to_base
         )
 
+    @staticmethod
+    def resample(points: np.ndarray, n_sample: int) -> np.ndarray:
+        traj = Trajectory(points)
+        return traj.resample(n_sample).numpy()
+
     def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
         # resample
         n_wp_resample = 100  # except the start point
@@ -172,7 +177,7 @@ class Demonstration:
 
         exec_time = 1.0
         dt = 0.01
-        n_weights_per_dim = 10
+        n_weights_per_dim = 20
         T = np.linspace(0, 1, 101)
 
         cartesian_dmp = CartesianDMP(
@@ -182,12 +187,13 @@ class Demonstration:
         cartesian_dmp.imitate(T, Y)
         cartesian_dmp.configure(start_y=Y[0], goal_y=Y[-1])
 
-        gripper_traj = Trajectory(list(np.array(self.gripper_width_list).reshape(-1, 1)))
-        gripper_traj_resampled = gripper_traj.resample(101)
+        gripper_traj_resampled = self.resample(
+            np.array(self.gripper_width_list).reshape(-1, 1), 101
+        )
         gripper_dmp = DMP(
             1, execution_time=exec_time, dt=dt, n_weights_per_dim=n_weights_per_dim, int_dt=0.0001
         )
-        gripper_dmp.imitate(T, gripper_traj_resampled.numpy())
+        gripper_dmp.imitate(T, gripper_traj_resampled)
         gripper_dmp.configure(start_y=gripper_traj_resampled[0], goal_y=gripper_traj_resampled[-1])
 
         if param is not None:
@@ -212,6 +218,7 @@ class Demonstration:
         *,
         arm: Literal["larm", "rarm"] = "rarm",
         param: Optional[DMPParameter] = None,
+        n_sample: int = 20,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
         if tf_ref_to_base is None:
@@ -261,4 +268,4 @@ class Demonstration:
             q_list.append(q_whole)
 
         q_seq = np.array(q_list)
-        return q_seq, gripper_traj
+        return self.resample(q_seq, n_sample), self.resample(gripper_traj, n_sample)

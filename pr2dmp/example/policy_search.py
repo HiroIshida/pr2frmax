@@ -33,9 +33,10 @@ if __name__ == "__main__":
         detector = FridgeDetector()
         tf_ref_to_base = detector.get_current_transform()
         qs, gs = demo.get_dmp_trajectory_pr2(tf_ref_to_base, ri.angle_vector())
+
         for q, g in zip(qs, gs):
-            ri.move_gripper("rarm", g - 0.008, effort=100)
-            ri.angle_vector(q, time=0.3)
+            ri.move_gripper("rarm", g - 0.012, effort=100)
+            ri.angle_vector(q, time=0.5)
             time.sleep(0.3)
     else:
         # here we use the recorded ref_to_base pose
