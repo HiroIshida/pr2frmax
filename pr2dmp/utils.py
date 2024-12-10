@@ -24,6 +24,13 @@ class RichTrasnform(Transform):
         return cls(translation, rotation, frame_from, frame_to)
 
     @classmethod
+    def from_flat_vector(cls, vector, frame_from: str, frame_to: str):
+        # vector is pos and quta in wxyz form
+        translation = vector[:3]
+        rotation = quaternion2matrix(vector[3:])
+        return cls(translation, rotation, frame_from, frame_to)
+
+    @classmethod
     def from_co(cls, co: Coordinates, frame_from: str, frame_to: str):
         return cls(co.worldpos(), co.worldrot(), frame_from, frame_to)
 

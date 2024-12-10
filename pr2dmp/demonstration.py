@@ -1,13 +1,16 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional, Tuple
 
 import numpy as np
 from movement_primitives.dmp import DMP, CartesianDMP
+from plainmp.ik import IKConfig, solve_ik
+from plainmp.robot_spec import PR2LarmSpec, PR2RarmSpec
+from plainmp.utils import set_robot_state
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
-from skrobot.coordinates.math import matrix2quaternion, xyzw2wxyz
+from skrobot.coordinates.math import matrix2quaternion, wxyz2xyzw, xyzw2wxyz
 
 from pr2dmp.trajectory import Trajectory
 from pr2dmp.utils import RichTrasnform
@@ -115,7 +118,7 @@ class Demonstration:
             ef_frame, ref_frame, trajectory, q_list, joint_names, gripper_width, tf_ref_to_base
         )
 
-    def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> CartesianDMP:
+    def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
         # resample
         n_wp_resample = 100  # except the start point
         n_wp_orignal = len(self)
@@ -156,6 +159,8 @@ class Demonstration:
             slerp = Slerp(np.array([0, 1]), rotations)
             interp_rots = slerp(tlin[1:])
             quat_list = []
+            # https://dfki-ric.github.io/pytransform3d/_apidoc/pytransform3d.rotations.matrix_from_quaternion.html#pytransform3d.rotations.matrix_from_quaternion
+            # NOTE: movement_primitives.dmp.CartesianDMP uses wxyz
             for rot in interp_rots:
                 xyzw = rot.as_quat()
                 quat_list.append(xyzw2wxyz(xyzw))
@@ -199,3 +204,58 @@ class Demonstration:
         _, gdmp_trajectory = gripper_dmp.open_loop()
         dmp_trajectory = np.hstack([cdmp_trajectory, gdmp_trajectory])
         return dmp_trajectory
+
+    def get_dmp_trajectory_pr2(
+        self,
+        tf_ref_to_base: Optional[RichTrasnform] = None,
+        arm: Literal["larm", "rarm"] = "rarm",
+        q_whole_init: Optional[np.ndarray] = None,
+        param: Optional[DMPParameter] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        if tf_ref_to_base is None:
+            tf_ref_to_base = self.tf_ref_to_base  # for debug
+
+        dmp_traj = self.get_dmp_trajectory(param)
+        cartesian_traj, gripper_traj = np.split(dmp_traj, [7], axis=1)
+        assert isinstance(cartesian_traj, np.ndarray)
+
+        tf_ef_to_base_list: List[RichTrasnform] = []
+        for tf_ef_to_ref_arr in cartesian_traj:
+            tf_ef_to_ref = RichTrasnform.from_flat_vector(
+                tf_ef_to_ref_arr, self.ef_frame, self.ref_frame
+            )
+            tf_ef_to_base = tf_ef_to_ref * tf_ref_to_base
+            tf_ef_to_base_list.append(tf_ef_to_base)
+
+        assert arm in ["larm", "rarm"]
+        spec = PR2LarmSpec() if arm == "larm" else PR2RarmSpec()
+        pr2 = spec.get_robot_model()  # this value is cached
+        if q_whole_init is None:
+            q_whole_init = self.q_list[
+                0
+            ]  # this is for whole body, we need extract only control_joint_names
+        pr2.angle_vector(q_whole_init)
+        dic = {jname: jangle for jname, jangle in zip(self.joint_names, q_whole_init)}
+        q_init = np.array([dic[jname] for jname in spec.control_joint_names])
+
+        lb, ub = spec.angle_bounds()
+        ik_config = IKConfig(ftol=1e-7, acceptable_error=1e-4)
+        q_list = []
+        for t, tf_ef_to_base in enumerate(tf_ef_to_base_list):
+            pos = tf_ef_to_base.translation
+            rotmat = tf_ef_to_base.rotation
+            quat_xyzw = wxyz2xyzw(matrix2quaternion(rotmat))
+            target_vector = np.hstack([pos, quat_xyzw])
+            ef_name = self.ef_frame
+            cst = spec.create_pose_const([ef_name], [target_vector])
+            max_trial = 100 if t == 0 else 1
+            ret = solve_ik(cst, None, lb, ub, q_seed=q_init, config=ik_config, max_trial=max_trial)
+            assert ret.success
+            q_init = ret.q
+            set_robot_state(pr2, spec.control_joint_names, ret.q)
+            q_whole = pr2.angle_vector()  # ret.q for only control_joint_names, this for all joints
+            q_list.append(q_whole)
+
+        q_seq = np.array(q_list)
+        return q_seq, gripper_traj
