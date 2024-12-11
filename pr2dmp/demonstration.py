@@ -6,7 +6,7 @@ from typing import List, Literal, Optional, Tuple
 import numpy as np
 from movement_primitives.dmp import DMP, CartesianDMP
 from plainmp.ik import IKConfig, solve_ik
-from plainmp.robot_spec import PR2LarmSpec, PR2RarmSpec
+from plainmp.robot_spec import Coordinates, PR2LarmSpec, PR2RarmSpec
 from plainmp.utils import set_robot_state
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
@@ -247,11 +247,16 @@ class Demonstration:
         *,
         arm: Literal["larm", "rarm"] = "rarm",
         param: Optional[DMPParameter] = None,
+        tf_obsref_to_ref: Optional[RichTrasnform] = None,
         n_sample: int = 40,
     ) -> Tuple[np.ndarray, np.ndarray]:
 
         if tf_ref_to_base is None:
             tf_ref_to_base = self.tf_ref_to_base  # for debug
+
+        if tf_obsref_to_ref is None:
+            frame = tf_ref_to_base.frame_from
+            tf_obsref_to_ref = RichTrasnform.from_co(Coordinates(), frame, frame)
 
         dmp_traj = self.get_dmp_trajectory(param)
         cartesian_traj, gripper_traj = np.split(dmp_traj, [7], axis=1)
@@ -262,7 +267,9 @@ class Demonstration:
             tf_ef_to_ref = RichTrasnform.from_flat_vector(
                 tf_ef_to_ref_arr, self.ef_frame, self.ref_frame
             )
-            tf_ef_to_base = tf_ef_to_ref * tf_ref_to_base
+            # tf_ef_to_base = tf_ef_to_ref * tf_ref_to_base (original)
+            # => considering error
+            tf_ef_to_base = tf_ef_to_ref * tf_obsref_to_ref * tf_ref_to_base
             tf_ef_to_base_list.append(tf_ef_to_base)
 
         assert arm in ["larm", "rarm"]

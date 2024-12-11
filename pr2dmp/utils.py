@@ -1,6 +1,6 @@
 from geometry_msgs.msg import Pose, PoseStamped
 from skrobot.coordinates import Coordinates, Transform
-from skrobot.coordinates.math import quaternion2matrix
+from skrobot.coordinates.math import quaternion2matrix, rpy_matrix
 
 
 class RichTrasnform(Transform):
@@ -11,6 +11,14 @@ class RichTrasnform(Transform):
         super().__init__(translation, rotation)
         self.frame_from = frame_from
         self.frame_to = frame_to
+
+    def to_coordinates(self) -> Coordinates:
+        return Coordinates(self.translation, self.rotation)
+
+    @classmethod
+    def from_xytheta(cls, x, y, theta, frame_from: str, frame_to: str):
+        rot = rpy_matrix(theta, 0, 0)
+        return cls([x, y, 0], rot, frame_from, frame_to)
 
     @classmethod
     def from_ros_pose_stamped(cls, pose_stamped: PoseStamped, frame_from: str):

@@ -3,6 +3,7 @@ import time
 
 from plainmp.robot_spec import PR2RarmSpec
 from skrobot.interfaces.ros import PR2ROSRobotInterface
+from skrobot.model.primitives import Axis
 from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
@@ -12,6 +13,7 @@ from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
 )
+from pr2dmp.utils import RichTrasnform
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -40,9 +42,12 @@ if __name__ == "__main__":
             time.sleep(0.2)
     else:
         # here we use the recorded ref_to_base pose
-        qs, gs = demo.get_dmp_trajectory_pr2()
+        tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.05, +0.05, 0.3, "fridge", "fridge")
+        qs, gs = demo.get_dmp_trajectory_pr2(tf_obsref_to_ref=tf_obsref_to_ref)
         viewer = PyrenderViewer()
         viewer.add(robot)
+        axis = Axis.from_coords(demo.tf_ref_to_base.to_coordinates())
+        viewer.add(axis)
         viewer.show()
         for q in qs:
             robot.angle_vector(q)
