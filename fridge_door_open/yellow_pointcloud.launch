@@ -1,0 +1,67 @@
+<launch>
+  <arg name="input" default="/kinect_head/depth_registered/throttled/points"/>
+
+  <group ns="yellow_tape">
+    <!-- Create nodelet manager -->
+    <node pkg="nodelet" type="nodelet" name="perception_manager" 
+          args="manager" output="screen"/>
+
+    <!-- BoxFilter nodelet -->
+    <node pkg="nodelet" type="nodelet" name="boxfilter_pre"
+          args="load jsk_pcl/AttentionClipper perception_manager"
+          output="screen">
+      <remap from="~input/points" to="$(arg input)"/>
+      <rosparam>
+        use_multiple_attention: false
+      </rosparam>
+      <param name="dimension_x" value="0.2"/>
+      <param name="dimension_y" value="0.2"/>
+      <param name="dimension_z" value="0.2"/>
+      <param name="frame_id" value="l_gripper_palm_link" />
+    </node>
+
+    <!-- ExtractIndices nodelet -->
+    <node pkg="nodelet" type="nodelet" name="ExtractIndices"
+          args="load jsk_pcl/ExtractIndices perception_manager"
+          output="screen">
+      <remap from="~input" to="$(arg input)"/>
+      <remap from="~indices" to="boxfilter_pre/output/point_indices"/>
+      <rosparam>
+        keep_organized: true
+      </rosparam>
+    </node>
+
+    <!-- HSIColorFilter nodelet -->
+    <node pkg="nodelet" type="nodelet" name="hsi_filter"
+          args="load jsk_pcl/HSIColorFilter perception_manager"
+          output="screen">
+      <remap from="~input" to="ExtractIndices/output" />
+      <rosparam>
+        use_indices: false
+        keep_organized: false
+      </rosparam>
+      <param name="h_limit_max" value="127" />
+      <param name="h_limit_min" value="0" />
+      <param name="s_limit_max" value="255" />
+      <param name="s_limit_min" value="100" />
+      <param name="i_limit_max" value="255" />
+      <param name="i_limit_min" value="100" />
+    </node>
+
+    <!-- TfTransformCloud nodelet -->
+    <node name="tf_transform_cloud"
+          pkg="nodelet" type="nodelet"
+          args="standalone jsk_pcl_utils/TfTransformCloud">
+      <remap from="~input" to="hsi_filter/output"/>
+      <rosparam>
+        target_frame_id: base_footprint
+      </rosparam>
+    </node>
+  </group>
+
+  <!-- run node.py in pr2frmax pkg -->
+  <node pkg="pr2frmax" type="tape_center_finder.py" name="node" output="screen">
+    <param name="input" value="yellow_tape/tf_transform_cloud/output"/>
+  </node>
+
+</launch>
