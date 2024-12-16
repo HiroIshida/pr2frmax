@@ -37,7 +37,7 @@ if __name__ == "__main__":
         ri.wait_interpolation()
         detector = FridgeDetector()
         tf_ref_to_base = detector.get_current_transform()
-        april_detector = AprilOffsetDetector()
+        april_detector = AprilOffsetDetector(debug=True)
         tf_ap_to_aphat = april_detector.get_gripper_offset()
         qs, gs = demo.get_dmp_trajectory_pr2(tf_ref_to_base, ri.angle_vector(), n_sample=15)
 
