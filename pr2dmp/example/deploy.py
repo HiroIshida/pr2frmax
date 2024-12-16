@@ -17,6 +17,7 @@ from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
+    set_head_controller_mode,
 )
 
 if __name__ == "__main__":
@@ -29,6 +30,7 @@ if __name__ == "__main__":
         set_arm_controller_mode("larm", "tight")
         set_gripper_controller_mode("rarm", "tight")
         set_gripper_controller_mode("larm", "tight")
+        set_head_controller_mode
 
     demo = Demonstration.load("fridge_door_open")
     pr2 = PR2()
