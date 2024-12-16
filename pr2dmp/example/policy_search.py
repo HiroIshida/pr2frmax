@@ -12,6 +12,7 @@ from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
+    set_head_controller_mode,
 )
 from pr2dmp.utils import RichTrasnform
 
@@ -29,6 +30,7 @@ if __name__ == "__main__":
         set_arm_controller_mode("larm", "tight")
         set_gripper_controller_mode("rarm", "tight")
         set_gripper_controller_mode("larm", "tight")
+        set_head_controller_mode("tight")
         ri = PR2ROSRobotInterface(robot)
         ri.angle_vector(demo.q_list[0])
         ri.wait_interpolation()
@@ -42,7 +44,7 @@ if __name__ == "__main__":
             time.sleep(0.2)
     else:
         # here we use the recorded ref_to_base pose
-        tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.05, +0.05, 0.3, "fridge", "fridge")
+        tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.0, +0.0, 0.0, "fridge", "fridge")
         qs, gs = demo.get_dmp_trajectory_pr2(tf_obsref_to_ref=tf_obsref_to_ref)
         viewer = PyrenderViewer()
         viewer.add(robot)

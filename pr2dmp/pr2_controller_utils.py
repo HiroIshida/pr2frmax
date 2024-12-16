@@ -48,6 +48,30 @@ def set_gripper_controller_mode(
         raise ValueError("mode must be 'tight' or 'loose")
 
 
+def set_head_controller_mode(mode: Literal["tight", "loose"]) -> None:
+    controller_name = "head_traj_controller"
+    controller_name_loose = "head_traj_controller_loose"
+
+    status = get_controller_states()
+    if mode == "tight":
+        target_controller = controller_name
+        other_controller = controller_name_loose
+    else:
+        target_controller = controller_name_loose
+        other_controller = controller_name
+    if status[target_controller]:
+        rospy.loginfo(f"{target_controller} is already active")
+        return
+
+    sp = rospy.ServiceProxy("/pr2_controller_manager/switch_controller", SwitchController)
+    resp = sp(start_controllers=[target_controller], stop_controllers=[other_controller])
+    rospy.loginfo("controller service response: {}".format(resp))
+    time.sleep(1.0)
+    state = get_controller_states()
+    assert state[target_controller]
+    assert state[other_controller]
+
+
 def set_arm_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight", "loose"]) -> None:
     """Set the controller mode for a specified arm.
 
@@ -102,14 +126,4 @@ if __name__ == "__main__":
     parser.add_argument("--arm", type=str, choices=["rarm", "larm"])
     args = parser.parse_args()
 
-    if args.arm is None:
-        arms = ["rarm", "larm"]
-    else:
-        arms = [args.arm]
-
-    if args.loose:
-        for arm in arms:
-            set_controller_mode(arm, "loose")
-    if args.tight:
-        for arm in arms:
-            set_controller_mode(arm, "tight")
+    print(get_controller_states())

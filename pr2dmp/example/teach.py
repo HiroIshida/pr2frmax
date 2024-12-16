@@ -10,6 +10,7 @@ from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
+    set_head_controller_mode,
 )
 from pr2dmp.utils import RichTrasnform
 
@@ -19,6 +20,7 @@ if __name__ == "__main__":
     set_arm_controller_mode("larm", "loose")
     set_gripper_controller_mode("larm", "loose")
     set_gripper_controller_mode("larm", "tight")
+    set_head_controller_mode("loose")
     # HACK: gripper must be first set to loose mode then to tight mode
     # loose => for the gripper to be able to move by human
     # tight => to measure the gripper width
