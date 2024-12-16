@@ -1,3 +1,7 @@
+# flake8: noqa F402
+import site
+
+site.addsitedir("/usr/lib/python3/dist-packages")
 import argparse
 import time
 
@@ -44,8 +48,8 @@ if __name__ == "__main__":
         for q, g in zip(qs, gs):
             print(g)
             ri.move_gripper("larm", g - 0.01, effort=100)
-            ri.angle_vector(q, time=0.5)
-            time.sleep(0.4)
+            ri.angle_vector(q, time=0.4)
+            time.sleep(0.2)
     else:
         # here we use the recorded ref_to_base pose
         tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.0, +0.0, 0.0, "fridge", "fridge")
