@@ -42,9 +42,10 @@ if __name__ == "__main__":
         qs, gs = demo.get_dmp_trajectory_pr2(tf_ref_to_base, ri.angle_vector(), n_sample=15)
 
         for q, g in zip(qs, gs):
-            ri.move_gripper("rarm", g - 0.012, effort=100)
-            ri.angle_vector(q, time=0.3)
-            time.sleep(0.2)
+            print(g)
+            ri.move_gripper("larm", g - 0.01, effort=100)
+            ri.angle_vector(q, time=0.5)
+            time.sleep(0.4)
     else:
         # here we use the recorded ref_to_base pose
         tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.0, +0.0, 0.0, "fridge", "fridge")
