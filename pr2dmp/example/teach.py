@@ -1,6 +1,4 @@
-import numpy as np
 from control_msgs.msg import JointControllerState
-from skrobot.coordinates.math import rpy2quaternion
 from skrobot.interfaces.ros.pr2 import PR2ROSRobotInterface
 from skrobot.models.pr2 import PR2
 
@@ -12,7 +10,6 @@ from pr2dmp.pr2_controller_utils import (
     set_gripper_controller_mode,
     set_head_controller_mode,
 )
-from pr2dmp.utils import RichTrasnform
 
 if __name__ == "__main__":
     pr2 = PR2()
@@ -41,11 +38,7 @@ if __name__ == "__main__":
             tf_fridge_to_basefootprint = fridge_detector.get_current_transform()
 
             offset_detector = AprilOffsetDetector(debug=True)
-            position, rpy = offset_detector.get_gripper_offset()
-            ypr = rpy[::-1]
-            quat = rpy2quaternion(ypr)
-            flat_vector = np.concatenate([position, quat])
-            tf_ap_to_aphat = RichTrasnform.from_flat_vector(flat_vector, "apriltag", "apriltag_hat")
+            tf_ap_to_aphat = offset_detector.get_gripper_offset()
 
         gripper_state: JointControllerState = ri.gripper_states["larm"]
         gripper_width = gripper_state.process_value

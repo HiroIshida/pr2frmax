@@ -69,7 +69,7 @@ def set_head_controller_mode(mode: Literal["tight", "loose"]) -> None:
     time.sleep(1.0)
     state = get_controller_states()
     assert state[target_controller]
-    assert state[other_controller]
+    assert not state[other_controller]
 
 
 def set_arm_controller_mode(arm: Literal["rarm", "larm"], mode: Literal["tight", "loose"]) -> None:

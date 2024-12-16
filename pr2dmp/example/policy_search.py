@@ -7,6 +7,7 @@ from skrobot.model.primitives import Axis
 from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
+from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
 from pr2dmp.demonstration import Demonstration
 from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
@@ -36,6 +37,8 @@ if __name__ == "__main__":
         ri.wait_interpolation()
         detector = FridgeDetector()
         tf_ref_to_base = detector.get_current_transform()
+        april_detector = AprilOffsetDetector()
+        tf_ap_to_aphat = april_detector.get_gripper_offset()
         qs, gs = demo.get_dmp_trajectory_pr2(tf_ref_to_base, ri.angle_vector(), n_sample=15)
 
         for q, g in zip(qs, gs):

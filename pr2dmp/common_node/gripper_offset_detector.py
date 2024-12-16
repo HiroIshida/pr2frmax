@@ -4,7 +4,9 @@ from typing import List, Optional, Tuple
 import numpy as np
 import rospy
 import tf2_ros
-from skrobot.coordinates.math import quaternion2rpy
+from skrobot.coordinates.math import quaternion2rpy, rpy_matrix
+
+from pr2dmp.utils import RichTrasnform
 
 
 class PoseQueue:
@@ -137,7 +139,9 @@ class AprilOffsetDetector:
             position = mean[:3]
             ypr = mean[3:]
             rpy = ypr[::-1]
-        return position, rpy
+
+        matrix = rpy_matrix(*rpy)
+        return RichTrasnform(position, matrix, "apriltag", "apriltag_hat")
 
 
 if __name__ == "__main__":

@@ -260,6 +260,7 @@ class Demonstration:
     def get_dmp_trajectory_pr2(
         self,
         tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
+        tf_ap_to_aphat: Optional[RichTrasnform] = None,  # NONE only for debug
         q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
         *,
         arm: Literal["larm", "rarm"] = "larm",
@@ -275,6 +276,9 @@ class Demonstration:
             frame = tf_ref_to_base.frame_from
             tf_obsref_to_ref = RichTrasnform.from_co(Coordinates(), frame, frame)
 
+        if tf_ap_to_aphat is None:
+            tf_ap_to_aphat = self.tf_ap_to_aphat
+
         dmp_traj = self.get_dmp_trajectory(param)
         cartesian_traj, gripper_traj = np.split(dmp_traj, [7], axis=1)
         assert isinstance(cartesian_traj, np.ndarray)
@@ -286,8 +290,22 @@ class Demonstration:
             )
             # tf_ef_to_base = tf_ef_to_ref * tf_ref_to_base (original)
             # => considering error
-            tf_ef_to_base = tf_ef_to_ref * tf_obsref_to_ref * tf_ref_to_base
-            tf_ef_to_base_list.append(tf_ef_to_base)
+            tf_efhat_to_base = tf_ef_to_ref * tf_obsref_to_ref * tf_ref_to_base
+            tf_ef_to_base_list.append(tf_efhat_to_base)
+
+        # convert tf_ef_to_base to tf_efhat_to_base
+        tf_efhat_to_base_list = []
+        for tf_efhat_to_base in tf_ef_to_base_list:
+            # assuming tf_ap_to_aphat equals to tf_ef_to_efhat
+            tf_ef_to_efhat = RichTrasnform(
+                self.tf_ap_to_aphat.translation,
+                self.tf_ap_to_aphat.rotation,
+                self.ef_frame,
+                self.ef_frame + "hat",
+            )
+            tf_efhat_to_ef = tf_ef_to_efhat.inv()
+            tf_efhat_to_base = tf_efhat_to_ef * tf_efhat_to_base
+            tf_efhat_to_base_list.append(tf_efhat_to_base)
 
         assert arm in ["larm", "rarm"]
         spec = PR2LarmSpec() if arm == "larm" else PR2RarmSpec()
@@ -305,9 +323,9 @@ class Demonstration:
         lb, ub = spec.angle_bounds()
         ik_config = IKConfig(ftol=1e-7, acceptable_error=1e-4)
         q_list = []
-        for t, tf_ef_to_base in enumerate(tf_ef_to_base_list):
-            pos = tf_ef_to_base.translation
-            rotmat = tf_ef_to_base.rotation
+        for t, tf_efhat_to_base in enumerate(tf_efhat_to_base_list):
+            pos = tf_efhat_to_base.translation
+            rotmat = tf_efhat_to_base.rotation
             quat_xyzw = wxyz2xyzw(matrix2quaternion(rotmat))
             target_vector = np.hstack([pos, quat_xyzw])
             ef_name = self.ef_frame
