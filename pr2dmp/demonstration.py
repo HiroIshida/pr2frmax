@@ -58,17 +58,14 @@ class DMPParameter:
 class Demonstration:
     ef_frame: str
     ref_frame: str
-    tf_ef_to_ref_list: List[RichTrasnform]
+    tf_ap_to_aphat: RichTrasnform  # april tag obs to april tag computed by fk
     q_list: Optional[List[np.ndarray]]
     joint_names: List[str]
     gripper_width_list: List[float]
-    tf_ref_to_base: Optional[RichTrasnform] = None  # aux info
-
-    def __post_init__(self) -> None:
-        assert len(self.tf_ef_to_ref_list) == len(self.q_list)
+    tf_ref_to_base: RichTrasnform
 
     def __len__(self) -> int:
-        return len(self.tf_ef_to_ref_list)
+        return len(self.q_list)
 
     def save(self, project_name: str) -> None:
         def transform_to_vector(t: RichTrasnform) -> np.ndarray:
@@ -78,7 +75,7 @@ class Demonstration:
         dic = {}
         dic["ef_frame"] = self.ef_frame
         dic["ref_frame"] = self.ref_frame
-        dic["trajectory"] = [transform_to_vector(t).tolist() for t in self.tf_ef_to_ref_list]
+        dic["tf_ap_to_aphat"] = transform_to_vector(self.tf_ap_to_aphat).tolist()
         dic["q_list"] = [q.tolist() for q in self.q_list]
         dic["joint_names"] = self.joint_names
         dic["gripper_width"] = self.gripper_width_list
@@ -95,13 +92,14 @@ class Demonstration:
             dic = json.load(f)
         ef_frame = dic["ef_frame"]
         ref_frame = dic["ref_frame"]
-        trajectory = []
-        for t in dic["trajectory"]:
-            translation = t[:3]
-            rotation = t[3:]
-            rot = np.array(rotation).reshape(3, 3)
-            t = RichTrasnform(translation, rot, frame_from=ef_frame, frame_to=ref_frame)
-            trajectory.append(t)
+
+        t = dic["tf_ap_to_aphat"]
+        translation = t[:3]
+        rotation = np.array(t[3:]).reshape(3, 3)
+        tf_ap_to_aphat = RichTrasnform(
+            translation, rotation, frame_from="apriltag", frame_to="apriltag_hat"
+        )
+
         q_list = [np.array(q) for q in dic["q_list"]]
         joint_names = dic["joint_names"]
         gripper_width = dic["gripper_width"]
@@ -114,7 +112,7 @@ class Demonstration:
                 translation, rot, frame_from=ref_frame, frame_to="base_footprint"
             )
         return cls(
-            ef_frame, ref_frame, trajectory, q_list, joint_names, gripper_width, tf_ref_to_base
+            ef_frame, ref_frame, tf_ap_to_aphat, q_list, joint_names, gripper_width, tf_ref_to_base
         )
 
     @staticmethod
@@ -153,6 +151,25 @@ class Demonstration:
         return np.array(vec_list)
 
     def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
+        model = PR2LarmSpec().get_robot_model()  # model is same for both arms
+
+        # compute tf_ef_to_ref_list
+        tf_ef_to_ref_list = []
+        efhat_name = self.ef_frame + "hat"
+        for q in self.q_list:
+            model.angle_vector(q)
+            co_efhat_to_base = model.__dict__[self.ef_frame].copy_worldcoords()
+            tf_efhat_to_base = RichTrasnform.from_co(co_efhat_to_base, efhat_name, "base_footprint")
+            tf_ef_to_efhat = RichTrasnform(
+                self.tf_ap_to_aphat.translation,
+                self.tf_ap_to_aphat.rotation,
+                self.ef_frame,
+                efhat_name,
+            )
+            tf_ef_to_base = tf_ef_to_efhat * tf_efhat_to_base
+            tf_ef_to_ref = tf_ef_to_base * self.tf_ref_to_base.inv()
+            tf_ef_to_ref_list.append(tf_ef_to_ref)
+
         # resample
         n_wp_resample = 100  # except the start point
         n_wp_orignal = len(self)
@@ -167,7 +184,7 @@ class Demonstration:
         vec_list = []
 
         # the first point
-        tf = self.tf_ef_to_ref_list[0]
+        tf = tf_ef_to_ref_list[0]
         pos = tf.translation
         rot = tf.rotation
         wxyz = matrix2quaternion(rot)
@@ -175,8 +192,8 @@ class Demonstration:
         vec_list.append(vec)
 
         for i_segment in range(n_segment_original):
-            tf_start = self.tf_ef_to_ref_list[i_segment]
-            tf_end = self.tf_ef_to_ref_list[i_segment + 1]
+            tf_start = tf_ef_to_ref_list[i_segment]
+            tf_end = tf_ef_to_ref_list[i_segment + 1]
             pos_start, rot_start = tf_start.translation, tf_start.rotation
             pos_end, rot_end = tf_end.translation, tf_end.rotation
 
@@ -245,7 +262,7 @@ class Demonstration:
         tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
         q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
         *,
-        arm: Literal["larm", "rarm"] = "rarm",
+        arm: Literal["larm", "rarm"] = "larm",
         param: Optional[DMPParameter] = None,
         tf_obsref_to_ref: Optional[RichTrasnform] = None,
         n_sample: int = 40,

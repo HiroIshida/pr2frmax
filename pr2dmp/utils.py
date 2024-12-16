@@ -12,6 +12,9 @@ class RichTrasnform(Transform):
         self.frame_from = frame_from
         self.frame_to = frame_to
 
+    def __repr__(self):
+        return f"RichTrasnform({self.translation}, {self.rotation}, {self.frame_from}, {self.frame_to})"
+
     def to_coordinates(self) -> Coordinates:
         return Coordinates(self.translation, self.rotation)
 
