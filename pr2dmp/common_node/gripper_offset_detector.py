@@ -26,6 +26,9 @@ class PoseQueue:
     def get_mean(
         self, timestamp: rospy.Time, outlier_th_sigma: float = 1.0
     ) -> Optional[np.ndarray]:
+        if len(self.queue) < self.max_size:
+            return None
+
         oldest_timestamp = self.queue[0][1]
         elapsed_from_oldest = (timestamp - oldest_timestamp).to_sec()
         is_too_old = elapsed_from_oldest > self.window
@@ -72,6 +75,7 @@ class AprilOffsetDetector:
         self,
         tf_lb: Optional[Tuple[tf2_ros.Buffer, tf2_ros.TransformListener]] = None,
         position_only: bool = False,
+        debug: bool = False,
     ):
         if tf_lb is None:
             buffer = tf2_ros.Buffer()
@@ -85,6 +89,11 @@ class AprilOffsetDetector:
         self.pose_queue = PoseQueue(30, position_only=position_only)
         self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_callback)
         self.position_only = position_only
+
+        if debug:
+            self.log_func = rospy.loginfo
+        else:
+            self.log_func = lambda x: None
 
     def timer_callback(self, event):
         transform = self.tf_buffer.lookup_transform(
@@ -108,6 +117,7 @@ class AprilOffsetDetector:
             self.pose_queue.push(vec, transform.header.stamp)
 
     def get_gripper_offset(self) -> Tuple[np.ndarray, np.ndarray]:
+        self.log_func("(get_gripper_offset) waiting for stable data")
         timeout = 5.0
         ts = time.time()
         while True:
@@ -118,6 +128,8 @@ class AprilOffsetDetector:
             if time.time() - ts > timeout:
                 rospy.logerr("Timeout")
                 raise TimeoutError
+        self.log_func(f"(get_gripper_offset) detected stable data. elapsed: {time.time() - ts}")
+        self.log_func(f"(get_gripper_offset) mean: {mean}")
         if self.position_only:
             position = mean
             rpy = np.zeros(3)
@@ -136,3 +148,4 @@ if __name__ == "__main__":
     ts = time.time()
     position, rpy = detector.get_gripper_offset()
     print(f"time: {time.time() - ts}")
+    print(position)
