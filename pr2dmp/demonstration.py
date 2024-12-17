@@ -244,13 +244,13 @@ class Demonstration:
 
         if param is not None:
             if param.forcing_term_pos is not None:
-                cartesian_dmp.forcing_term_pos.weights_[:, :] = param.forcing_term_pos
+                cartesian_dmp.forcing_term_pos.weights_[:, :] += param.forcing_term_pos
             if param.forcing_term_rot is not None:
-                cartesian_dmp.forcing_term_rot.weights_[:, :] = param.forcing_term_rot
+                cartesian_dmp.forcing_term_rot.weights_[:, :] += param.forcing_term_rot
             if param.goal_pos_diff is not None:
                 cartesian_dmp.goal_y[:3] += param.goal_pos_diff
             if param.gripper_forcing_term is not None:
-                gripper_dmp.forcing_term.weights_[:, :] = param.gripper_forcing_term
+                gripper_dmp.forcing_term.weights_[:, :] += param.gripper_forcing_term
 
         _, cdmp_trajectory = cartesian_dmp.open_loop()
         _, gdmp_trajectory = gripper_dmp.open_loop()
@@ -298,8 +298,8 @@ class Demonstration:
         for tf_efhat_to_base in tf_ef_to_base_list:
             # assuming tf_ap_to_aphat equals to tf_ef_to_efhat
             tf_ef_to_efhat = RichTrasnform(
-                self.tf_ap_to_aphat.translation,
-                self.tf_ap_to_aphat.rotation,
+                tf_ap_to_aphat.translation,
+                tf_ap_to_aphat.rotation,
                 self.ef_frame,
                 self.ef_frame + "hat",
             )

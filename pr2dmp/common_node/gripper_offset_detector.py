@@ -50,7 +50,7 @@ class PoseQueue:
             is_outlier = np.logical_or(is_pos_outlier, is_ypr_outlier)
 
         rate_of_outlier = np.sum(is_outlier) / len(is_outlier)
-        if rate_of_outlier > 0.6:
+        if rate_of_outlier > 0.8:
             rospy.logwarn(f"rate of outlier is too high: {rate_of_outlier}")
             return None
 
@@ -98,9 +98,15 @@ class AprilOffsetDetector:
             self.log_func = lambda x: None
 
     def timer_callback(self, event):
-        transform = self.tf_buffer.lookup_transform(
-            "apriltag_fk", "apriltag", rospy.Time(0), rospy.Duration(1.0)
-        )
+        while True:
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    "apriltag_fk", "apriltag", rospy.Time(0), rospy.Duration(1.0)
+                )
+                break
+            except:
+                rospy.logwarn("Failed to get transform")
+            time.sleep(0.3)
         pose = transform.transform
         translation = np.array([pose.translation.x, pose.translation.y, pose.translation.z])
         if self.position_only:
