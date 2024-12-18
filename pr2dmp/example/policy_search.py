@@ -4,13 +4,19 @@ import sys
 
 site.addsitedir("/usr/lib/python3/dist-packages")
 import argparse
+import pickle
 import subprocess
 import time
 from typing import Optional
 
 import numpy as np
 import rospy
-from frmax2.core import CompositeMetric, DGSamplerConfig, DistributionGuidedSampler
+from frmax2.core import (
+    CompositeMetric,
+    DGSamplerConfig,
+    DistributionGuidedSampler,
+    UniformSituationSampler,
+)
 from plainmp.robot_spec import PR2RarmSpec
 from skrobot.coordinates.math import rpy_matrix
 from skrobot.interfaces.ros import PR2ROSRobotInterface
@@ -19,7 +25,12 @@ from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
-from pr2dmp.demonstration import Demonstration, DMPParameter, RawDemonstration
+from pr2dmp.demonstration import (
+    Demonstration,
+    DMPParameter,
+    RawDemonstration,
+    project_root_path,
+)
 from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
@@ -117,7 +128,7 @@ class RolloutExecutor:
         for q, g in zip(qs, gs):
             self.ri.move_gripper("larm", g - 0.01, effort=100)
             av_time = 1.0 if slow else 0.4
-            sleep_time = 0.75 if slow else 0.2
+            sleep_time = 0.6 if slow else 0.2
             self.ri.angle_vector(q, time=av_time)
             time.sleep(sleep_time)
 
@@ -147,15 +158,14 @@ if __name__ == "__main__":
             ls_param = np.ones(n_param) * 10
             ls_err = np.array([0.015, 0.015, np.deg2rad(5.0)])
 
-            def sample_error():
-                return np.random.uniform(-ls_err * 3, ls_err * 3)
+            situ_sampler = UniformSituationSampler(-ls_err * 3, ls_err * 3)
 
             param_init = np.zeros(n_param)
             X = [np.hstack([param_init, np.zeros(ls_err.size)])]
             Y = [True]
-            for i in range(3):
+            for i in range(1):
                 speak(f"initial sampling number {i}")
-                e = sample_error()
+                e = situ_sampler()
                 label = executor.rollout(param_init, e, args.slow)
                 if label is None:
                     sys.exit()
@@ -180,16 +190,21 @@ if __name__ == "__main__":
                 metric,
                 param_init,
                 config,
-                situation_sampler=sample_error,
-                is_valid_param=lambda x: True,
+                situation_sampler=situ_sampler,
                 use_prefacto_branched_ask=False,
             )
+            sampler_cache_dir = project_root_path("fridge_door_open") / "sampler_cache"
+            sampler_cache_dir.mkdir(exist_ok=True)
             for i in range(1000):
                 speak(f"active sampling iteration {i}")
                 x = sampler.ask()
                 param, error = x[:-3], x[-3:]
                 label = executor.rollout(param, error, args.slow)
                 sampler.tell(x, label)
+                file_path = sampler_cache_dir / f"cache_{i}.pkl"
+                with open(file_path, "wb") as f:
+                    pickle.dump(sampler, f)
+                rospy.loginfo(f"saved sampler to {file_path}")
     else:
         # here we use the recorded ref_to_base pose
         param = DMPParameter()
