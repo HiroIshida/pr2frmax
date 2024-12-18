@@ -6,7 +6,7 @@ from typing import List, Literal, Optional, Tuple
 import numpy as np
 from movement_primitives.dmp import DMP, CartesianDMP
 from plainmp.ik import IKConfig, solve_ik
-from plainmp.robot_spec import Coordinates, PR2LarmSpec, PR2RarmSpec
+from plainmp.robot_spec import Coordinates, PR2LarmSpec, PR2RarmSpec, PR2SpecBase
 from plainmp.utils import set_robot_state
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
@@ -343,3 +343,35 @@ class Demonstration:
         return self.resample_sequence(q_seq, n_sample), self.resample_sequence(
             gripper_traj, n_sample
         )
+
+
+@dataclass
+class RawDemonstration:
+    q_list: List[np.ndarray]
+
+    def save(self, project_name: str, name: str) -> None:
+        arr = np.array(self.q_list)
+        file_path = project_root_path(project_name) / f"{name}.npy"
+        np.save(file_path, arr)
+
+    @classmethod
+    def load(cls, project_name: str, name: str) -> "RawDemonstration":
+        file_path = project_root_path(project_name) / f"{name}.npy"
+        arr = np.load(file_path)
+        q_list = [np.array(q) for q in arr]
+        return cls(q_list)
+
+    def resolved_trajectory(
+        self, q_whole_current: np.ndarray, spec: PR2SpecBase
+    ) -> List[np.ndarray]:
+        robot_model = spec.get_robot_model(False)
+        all_joint_names = robot_model.joint_names
+        assert len(q_whole_current) == len(all_joint_names)
+
+        indidces = [all_joint_names.index(jname) for jname in spec.control_joint_names]
+        q_partial_list = []
+        for q in self.q_list:
+            q_new = q_whole_current.copy()
+            q_new[indidces] = q[indidces]
+            q_partial_list.append(q_new)
+        return q_partial_list

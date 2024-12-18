@@ -18,7 +18,7 @@ from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
-from pr2dmp.demonstration import Demonstration, DMPParameter
+from pr2dmp.demonstration import Demonstration, DMPParameter, RawDemonstration
 from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
@@ -47,14 +47,17 @@ class RolloutExecutor:
         robot.angle_vector(ri.angle_vector())
         torso_current_height = robot.torso_lift_joint.joint_angle()
 
+        torso_index = robot.joint_names.index("torso_lift_joint")
         av_init = demo.q_list[0]
-        robot.angle_vector(av_init)
-        robot.torso_lift_joint.joint_angle(torso_current_height)
+        av_init[torso_index] = torso_current_height
 
         detector = FridgeDetector()
         april_detector = AprilOffsetDetector(debug=True)
 
-        self.q_full_init = robot.angle_vector()
+        self.cleaup_motion = RawDemonstration.load("fridge_door_open", "close")
+        q_init = self.cleaup_motion.resolved_trajectory(av_init, PR2RarmSpec())[0]
+
+        self.q_full_init = q_init
         self.demo = demo
         self.ri = ri
         self.detector = detector
@@ -70,6 +73,11 @@ class RolloutExecutor:
                 return False
             elif user_input.lower() == "r":
                 return None
+
+    def cleanup(self):
+        q_list = self.cleaup_motion.resolved_trajectory(self.ri.angle_vector(), PR2RarmSpec())
+        self.ri.angle_vector_sequence(q_list, [1.5] * len(q_list))
+        self.ri.wait_interpolation()
 
     def rollout(
         self, param_vec: Optional[np.ndarray], error: Optional[np.ndarray], slow: bool = False
@@ -113,6 +121,7 @@ class RolloutExecutor:
             time.sleep(sleep_time)
 
         label = self.get_manual_annotation()
+        self.cleanup()
         return label
 
 
