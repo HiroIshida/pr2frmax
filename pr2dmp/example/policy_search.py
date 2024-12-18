@@ -10,6 +10,7 @@ from typing import Optional
 
 import numpy as np
 import rospy
+from frmax2.core import CompositeMetric, DGSamplerConfig, DistributionGuidedSampler
 from plainmp.robot_spec import PR2RarmSpec
 from skrobot.coordinates.math import rpy_matrix
 from skrobot.interfaces.ros import PR2ROSRobotInterface
@@ -115,13 +116,14 @@ class RolloutExecutor:
 
         for q, g in zip(qs, gs):
             self.ri.move_gripper("larm", g - 0.01, effort=100)
-            av_time = 2.0 if slow else 0.4
-            sleep_time = 1.5 if slow else 0.2
+            av_time = 1.0 if slow else 0.4
+            sleep_time = 0.75 if slow else 0.2
             self.ri.angle_vector(q, time=av_time)
             time.sleep(sleep_time)
 
         label = self.get_manual_annotation()
-        self.cleanup()
+        if label:
+            self.cleanup()
         return label
 
 
@@ -142,41 +144,52 @@ if __name__ == "__main__":
             executor.rollout(None, None, args.slow)
         else:
             n_param = 30 + 10
-            ls_param = np.ones(n_param) * 30
-            ls_err = np.array([0.01, 0.01, np.deg2rad(5.0)])
+            ls_param = np.ones(n_param) * 10
+            ls_err = np.array([0.015, 0.015, np.deg2rad(5.0)])
 
             def sample_error():
-                return np.random.uniform(-ls_err * 5, ls_err * 5)
+                return np.random.uniform(-ls_err * 3, ls_err * 3)
 
             param_init = np.zeros(n_param)
             X = [np.hstack([param_init, np.zeros(ls_err.size)])]
             Y = [True]
-            for i in range(20):
+            for i in range(3):
                 speak(f"initial sampling number {i}")
                 e = sample_error()
                 label = executor.rollout(param_init, e, args.slow)
                 if label is None:
                     sys.exit()
+                x = np.hstack([param_init, e])
+                X.append(x)
+                Y.append(label)
 
-            # config = DGSamplerConfig(
-            #     param_ls_reduction_rate=0.999,
-            #     n_mc_param_search=30,
-            #     c_svm=10000,
-            #     integration_method="mc",
-            #     n_mc_integral=300,
-            #     r_exploration=1.0,
-            # )
-            # metric = CompositeMetric.from_ls_list([ls_param, ls_error])
-            # sampler = DistributionGuidedSampler(
-            #     X,
-            #     Y,
-            #     metric,
-            #     param_init,
-            #     sampler_config,
-            #     situation_sampler=cls.sample_situation,
-            #     is_valid_param=cls.is_valid_param,
-            #     use_prefacto_branched_ask=False,
-            # )
+            config = DGSamplerConfig(
+                param_ls_reduction_rate=0.999,
+                n_mc_param_search=30,
+                c_svm=10000,
+                integration_method="mc",
+                n_mc_integral=300,
+                r_exploration=1.0,
+            )
+            X = np.array(X)
+            Y = np.array(Y, dtype=bool)
+            metric = CompositeMetric.from_ls_list([ls_param, ls_err])
+            sampler = DistributionGuidedSampler(
+                X,
+                Y,
+                metric,
+                param_init,
+                config,
+                situation_sampler=sample_error,
+                is_valid_param=lambda x: True,
+                use_prefacto_branched_ask=False,
+            )
+            for i in range(1000):
+                speak(f"active sampling iteration {i}")
+                x = sampler.ask()
+                param, error = x[:-3], x[-3:]
+                label = executor.rollout(param, error, args.slow)
+                sampler.tell(x, label)
     else:
         # here we use the recorded ref_to_base pose
         param = DMPParameter()
