@@ -35,12 +35,19 @@ if __name__ == "__main__":
 
     demo = Demonstration.load(project_name)
     traj_seq = []
-    for param_vec in tqdm.tqdm(best_param_seq):
-        param = DMPParameter()
-        param.forcing_term_pos = param_vec[:30].reshape(3, 10)
-        param.gripper_forcing_term = param_vec[30:].reshape(1, 10)
-        traj = demo.get_dmp_trajectory(param)
-        assert traj.shape == (101, 8)  # 8 for x, y, z, qx, qy, qz, qw, gripper
+    for i, param_vec in tqdm.tqdm(enumerate(best_param_seq)):
+        traj_cache = sampler_cache_dir / f"traj_cache_{i}.pkl"
+        if traj_cache.exists():
+            with traj_cache.open(mode="rb") as f:
+                traj = pickle.load(f)
+        else:
+            param = DMPParameter()
+            param.forcing_term_pos = param_vec[:30].reshape(3, 10)
+            param.gripper_forcing_term = param_vec[30:].reshape(1, 10)
+            traj = demo.get_dmp_trajectory(param)
+            assert traj.shape == (101, 8)  # 8 for x, y, z, qx, qy, qz, qw, gripper
+            with traj_cache.open(mode="wb") as f:
+                pickle.dump(traj, f)
         traj_seq.append(traj)
 
     import matplotlib.pyplot as plt

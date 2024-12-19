@@ -1,7 +1,8 @@
 import json
+import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 from movement_primitives.dmp import DMP, CartesianDMP
@@ -63,6 +64,7 @@ class Demonstration:
     joint_names: List[str]
     gripper_width_list: List[float]
     tf_ref_to_base: RichTrasnform
+    dmp_cache: Dict[str, np.ndarray] = None
 
     def __len__(self) -> int:
         return len(self.q_list)
@@ -151,6 +153,10 @@ class Demonstration:
         return np.array(vec_list)
 
     def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
+        param_byte = pickle.dumps(param)
+        if self.dmp_cache is not None and param_byte in self.dmp_cache:
+            return self.dmp_cache[param_byte]
+
         model = PR2LarmSpec().get_robot_model()  # model is same for both arms
 
         # compute tf_ef_to_ref_list
@@ -255,6 +261,10 @@ class Demonstration:
         _, cdmp_trajectory = cartesian_dmp.open_loop()
         _, gdmp_trajectory = gripper_dmp.open_loop()
         dmp_trajectory = np.hstack([cdmp_trajectory, gdmp_trajectory])
+
+        if self.dmp_cache is None:
+            self.dmp_cache = {}
+        self.dmp_cache[param_byte] = dmp_trajectory
         return dmp_trajectory
 
     def get_dmp_trajectory_pr2(
