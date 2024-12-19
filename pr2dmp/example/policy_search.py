@@ -28,8 +28,8 @@ from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
 from pr2dmp.demonstration import (
     Demonstration,
     DMPParameter,
-    RawDemonstration,
     project_root_path,
+    resolve_initial_joint_positions,
 )
 from pr2dmp.example.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
@@ -59,17 +59,14 @@ class RolloutExecutor:
         robot.angle_vector(ri.angle_vector())
         torso_current_height = robot.torso_lift_joint.joint_angle()
 
-        torso_index = robot.joint_names.index("torso_lift_joint")
-        av_init = demo.q_list[0]
-        av_init[torso_index] = torso_current_height
-
         detector = FridgeDetector()
         april_detector = AprilOffsetDetector(debug=True)
 
-        self.cleaup_motion = RawDemonstration.load("fridge_door_open", "close")
-        q_init = self.cleaup_motion.resolved_trajectory(av_init, PR2RarmSpec())[0]
+        self.cleaup_motion = Demonstration.load("fridge_door_open", "close")
+        self.q_full_init = resolve_initial_joint_positions(
+            self.cleaup_motion, demo, torso_current_height, "larm"
+        )
 
-        self.q_full_init = q_init
         self.demo = demo
         self.ri = ri
         self.detector = detector
@@ -86,9 +83,11 @@ class RolloutExecutor:
             elif user_input.lower() == "r":
                 return None
 
-    def cleanup(self):
-        q_list = self.cleaup_motion.resolved_trajectory(self.ri.angle_vector(), PR2RarmSpec())
-        self.ri.angle_vector_sequence(q_list, [1.5] * len(q_list))
+    def cleanup(self, tf_ref_to_base: RichTrasnform) -> None:
+        q_list, _ = self.cleaup_motion.get_dmp_trajectory_pr2(
+            tf_ref_to_base, None, self.ri.angle_vector(), arm="rarm", n_sample=10
+        )
+        self.ri.angle_vector_sequence(list(q_list), [0.5] * len(q_list))
         self.ri.wait_interpolation()
 
     def rollout(
@@ -134,7 +133,7 @@ class RolloutExecutor:
 
         label = self.get_manual_annotation()
         if label:
-            self.cleanup()
+            self.cleanup(tf_ref_to_base)
         return label
 
 
@@ -148,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--slow", action="store_true", help="slow")
     args = parser.parse_args()
 
-    demo = Demonstration.load("fridge_door_open")
+    demo = Demonstration.load("fridge_door_open", "open")
     spec = PR2RarmSpec()
     robot = PR2(use_tight_joint_limit=False)
 

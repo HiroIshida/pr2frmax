@@ -67,7 +67,7 @@ class Demonstration:
     def __len__(self) -> int:
         return len(self.q_list)
 
-    def save(self, project_name: str) -> None:
+    def save(self, project_name: str, demo_name: str) -> None:
         def transform_to_vector(t: RichTrasnform) -> np.ndarray:
             rot = t.rotation
             return np.hstack([t.translation, rot.flatten()])
@@ -81,13 +81,13 @@ class Demonstration:
         dic["gripper_width"] = self.gripper_width_list
         if self.tf_ref_to_base is not None:
             dic["tf_ref_to_base"] = transform_to_vector(self.tf_ref_to_base).tolist()
-        path = project_root_path(project_name) / "demonstration.json"
+        path = project_root_path(project_name) / f"demo-{demo_name}.json"
         with open(path, "w") as f:
             json.dump(dic, f, indent=4)
 
     @classmethod
-    def load(cls, project_name: str) -> "Demonstration":
-        path = project_root_path(project_name) / "demonstration.json"
+    def load(cls, project_name: str, demo_name: str) -> "Demonstration":
+        path = project_root_path(project_name) / f"demo-{demo_name}.json"
         with open(path, "r") as f:
             dic = json.load(f)
         ef_frame = dic["ef_frame"]
@@ -343,6 +343,39 @@ class Demonstration:
         return self.resample_sequence(q_seq, n_sample), self.resample_sequence(
             gripper_traj, n_sample
         )
+
+
+def resolve_initial_joint_positions(
+    rarm_demo: Demonstration,
+    larm_demo: Demonstration,
+    torso_angle: float,
+    head_which: Literal["rarm", "larm"],
+) -> np.ndarray:
+    assert rarm_demo.ef_frame == "r_gripper_tool_frame"
+    assert larm_demo.ef_frame == "l_gripper_tool_frame"
+
+    rarm_spec = PR2RarmSpec()
+    larm_spec = PR2LarmSpec()
+    robot_model = rarm_spec.get_robot_model(False)
+
+    names = robot_model.joint_names
+    rarm_joint_indices = [names.index(jname) for jname in rarm_spec.control_joint_names]
+    larm_joint_indices = [names.index(jname) for jname in larm_spec.control_joint_names]
+
+    q_whole = robot_model.angle_vector()
+    for idx in rarm_joint_indices:
+        q_whole[idx] = rarm_demo.q_list[0][idx]
+    for idx in larm_joint_indices:
+        q_whole[idx] = larm_demo.q_list[0][idx]
+
+    head_indices = [names.index(jname) for jname in ["head_pan_joint", "head_tilt_joint"]]
+    q_init_demo = rarm_demo.q_list[0] if head_which == "rarm" else larm_demo.q_list[0]
+    for idx in head_indices:
+        q_whole[idx] = q_init_demo[idx]
+
+    torso_idx = names.index("torso_lift_joint")
+    q_whole[torso_idx] = torso_angle
+    return q_whole
 
 
 @dataclass

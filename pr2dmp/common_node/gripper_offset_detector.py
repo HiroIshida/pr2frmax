@@ -124,7 +124,7 @@ class AprilOffsetDetector:
             vec = np.hstack([translation, ypr])
             self.pose_queue.push(vec, transform.header.stamp)
 
-    def get_gripper_offset(self) -> Tuple[np.ndarray, np.ndarray]:
+    def get_gripper_offset(self) -> RichTrasnform:
         self.log_func("(get_gripper_offset) waiting for stable data")
         timeout = 5.0
         ts = time.time()
