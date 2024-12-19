@@ -141,7 +141,9 @@ class RolloutExecutor:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", action="store_true", help="on real robot")
-    parser.add_argument("--mode", type=str, default="simu", choices=["simu", "dry", "train", "resume"])
+    parser.add_argument(
+        "--mode", type=str, default="simu", choices=["simu", "dry", "train", "resume"]
+    )
     parser.add_argument("--cache", type=int, default=-1, help="cache index")
     parser.add_argument("--slow", action="store_true", help="slow")
     args = parser.parse_args()
