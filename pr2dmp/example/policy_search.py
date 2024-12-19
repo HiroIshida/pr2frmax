@@ -120,15 +120,15 @@ class RolloutExecutor:
             tf_ref_to_base,
             tf_ap_to_aphat,
             self.ri.angle_vector(),
-            n_sample=15,
+            n_sample=20,
             param=param,
             tf_obsref_to_ref=tf_obsref_to_ref,
         )
 
         for q, g in zip(qs, gs):
             self.ri.move_gripper("larm", g - 0.01, effort=100)
-            av_time = 1.0 if slow else 0.4
-            sleep_time = 0.6 if slow else 0.2
+            av_time = 0.8 if slow else 0.4
+            sleep_time = 0.5 if slow else 0.2
             self.ri.angle_vector(q, time=av_time)
             time.sleep(sleep_time)
 
@@ -141,7 +141,8 @@ class RolloutExecutor:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", action="store_true", help="on real robot")
-    parser.add_argument("--mode", type=str, default="simu", choices=["simu", "dry", "train"])
+    parser.add_argument("--mode", type=str, default="simu", choices=["simu", "dry", "train", "resume"])
+    parser.add_argument("--cache", type=int, default=-1, help="cache index")
     parser.add_argument("--slow", action="store_true", help="slow")
     args = parser.parse_args()
 
@@ -149,7 +150,7 @@ if __name__ == "__main__":
     spec = PR2RarmSpec()
     robot = PR2(use_tight_joint_limit=False)
 
-    if args.mode in ("dry", "train"):
+    if args.mode in ("dry", "train", "resume"):
         executor = RolloutExecutor(demo)
         if args.mode == "dry":
             executor.rollout(None, None, args.slow)
@@ -157,51 +158,67 @@ if __name__ == "__main__":
             n_param = 30 + 10
             ls_param = np.ones(n_param) * 10
             ls_err = np.array([0.015, 0.015, np.deg2rad(5.0)])
+            situ_sampler = UniformSituationSampler(-ls_err * 4, ls_err * 4)
 
-            situ_sampler = UniformSituationSampler(-ls_err * 3, ls_err * 3)
-
-            param_init = np.zeros(n_param)
-            X = [np.hstack([param_init, np.zeros(ls_err.size)])]
-            Y = [True]
-            for i in range(1):
-                speak(f"initial sampling number {i}")
-                e = situ_sampler()
-                label = executor.rollout(param_init, e, args.slow)
-                if label is None:
-                    sys.exit()
-                x = np.hstack([param_init, e])
-                X.append(x)
-                Y.append(label)
-
-            config = DGSamplerConfig(
-                param_ls_reduction_rate=0.999,
-                n_mc_param_search=30,
-                c_svm=10000,
-                integration_method="mc",
-                n_mc_integral=300,
-                r_exploration=1.0,
-            )
-            X = np.array(X)
-            Y = np.array(Y, dtype=bool)
-            metric = CompositeMetric.from_ls_list([ls_param, ls_err])
-            sampler = DistributionGuidedSampler(
-                X,
-                Y,
-                metric,
-                param_init,
-                config,
-                situation_sampler=situ_sampler,
-                use_prefacto_branched_ask=False,
-            )
             sampler_cache_dir = project_root_path("fridge_door_open") / "sampler_cache"
             sampler_cache_dir.mkdir(exist_ok=True)
-            for i in range(1000):
-                speak(f"active sampling iteration {i}")
+
+            if args.mode == "resume":
+                cache_path = sampler_cache_dir / f"cache_{args.cache}.pkl"
+                rospy.loginfo(f"loading sampler from {cache_path}")
+                with open(cache_path, "rb") as f:
+                    sampler = pickle.load(f)
+                n_iter = args.cache
+            else:
+                if sampler_cache_dir.exists():
+                    n_file = len(list(sampler_cache_dir.iterdir()))
+                    if n_file > 0:
+                        input(f"remove {n_file} cache files? [Enter]")
+                    for f in sampler_cache_dir.iterdir():
+                        f.unlink()
+
+                param_init = np.zeros(n_param)
+                X = [np.hstack([param_init, np.zeros(ls_err.size)])]
+                Y = [True]
+                for i in range(5):
+                    speak(f"initial sampling number {i}")
+                    e = situ_sampler() * 0.5
+                    label = executor.rollout(param_init, e, args.slow)
+                    if label is None:
+                        sys.exit()
+                    x = np.hstack([param_init, e])
+                    X.append(x)
+                    Y.append(label)
+
+                config = DGSamplerConfig(
+                    param_ls_reduction_rate=0.999,
+                    n_mc_param_search=30,
+                    c_svm=10000,
+                    integration_method="mc",
+                    n_mc_integral=300,
+                    r_exploration=1.0,
+                )
+                X = np.array(X)
+                Y = np.array(Y, dtype=bool)
+                metric = CompositeMetric.from_ls_list([ls_param, ls_err])
+                sampler = DistributionGuidedSampler(
+                    X,
+                    Y,
+                    metric,
+                    param_init,
+                    config,
+                    situation_sampler=situ_sampler,
+                    use_prefacto_branched_ask=False,
+                )
+                n_iter = -1
+            for _ in range(1000):
+                n_iter += 1
+                speak(f"active sampling iteration {n_iter}")
                 x = sampler.ask()
                 param, error = x[:-3], x[-3:]
                 label = executor.rollout(param, error, args.slow)
                 sampler.tell(x, label)
-                file_path = sampler_cache_dir / f"cache_{i}.pkl"
+                file_path = sampler_cache_dir / f"cache_{n_iter}.pkl"
                 with open(file_path, "wb") as f:
                     pickle.dump(sampler, f)
                 rospy.loginfo(f"saved sampler to {file_path}")

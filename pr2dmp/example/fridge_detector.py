@@ -42,7 +42,7 @@ class FridgeDetector:
             transform = msg.objects[0].pose
             pose = PoseStamped(header=msg.header, pose=transform)
             self.pose = pose
-            rospy.loginfo("object detected")
+            rospy.loginfo(f"object detected: {pose.pose.position}")
 
 
 if __name__ == "__main__":
