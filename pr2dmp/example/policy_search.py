@@ -9,8 +9,10 @@ import subprocess
 import time
 from typing import Optional
 
+import cv2
 import numpy as np
 import rospy
+from cv_bridge import CvBridge
 from frmax2.core import (
     CompositeMetric,
     DGSamplerConfig,
@@ -18,6 +20,7 @@ from frmax2.core import (
     UniformSituationSampler,
 )
 from plainmp.robot_spec import PR2RarmSpec
+from sensor_msgs.msg import CompressedImage
 from skrobot.coordinates.math import rpy_matrix
 from skrobot.interfaces.ros import PR2ROSRobotInterface
 from skrobot.model.primitives import Axis
@@ -45,6 +48,30 @@ def speak(message: str) -> None:
     subprocess.call('echo "{}" | festival --tts'.format(message), shell=True)
 
 
+class ImageProvider:
+    def __init__(self):
+        topic_name = "/kinect_head/rgb/image_color/compressed"
+        rospy.Subscriber(topic_name, CompressedImage, self.callback)
+        self.active = False
+        self.image = None
+
+    def callback(self, msg):
+        if self.active:
+            self.image = CvBridge().compressed_imgmsg_to_cv2(msg)
+
+    def get_image(self, timeout: float = 10) -> np.ndarray:
+        self.image = None
+        self.active = True
+        ts = time.time()
+        while self.image is None:
+            rospy.sleep(0.1)
+            if time.time() - ts > timeout:
+                rospy.logerr("timeout")
+                assert False
+        self.active = False
+        return self.image
+
+
 class RolloutExecutor:
     def __init__(self, demo: Demonstration):
         # use tight controller
@@ -61,6 +88,7 @@ class RolloutExecutor:
 
         detector = FridgeDetector()
         april_detector = AprilOffsetDetector(debug=True)
+        image_provider = ImageProvider()
 
         self.cleaup_motion = Demonstration.load("fridge_door_open", "close")
         self.q_full_init = resolve_initial_joint_positions(
@@ -71,6 +99,9 @@ class RolloutExecutor:
         self.ri = ri
         self.detector = detector
         self.april_detector = april_detector
+        self.image_provider = image_provider
+        self.init_image_cache = None
+        self.final_image_cache = None
 
     def get_manual_annotation(self) -> Optional[bool]:
         while True:
@@ -104,6 +135,9 @@ class RolloutExecutor:
         self.ri.wait_interpolation()
         time.sleep(1)
 
+        # take picture at the initial state
+        self.init_image_cache = self.image_provider.get_image()
+
         # observe the fridge and apriltag
         tf_ref_to_base = self.detector.get_current_transform()
         tf_ap_to_aphat = self.april_detector.get_gripper_offset()
@@ -131,6 +165,7 @@ class RolloutExecutor:
             self.ri.angle_vector(q, time=av_time)
             time.sleep(sleep_time)
 
+        self.final_image_cache = self.image_provider.get_image()
         label = self.get_manual_annotation()
         if label:
             self.cleanup(tf_ref_to_base)
@@ -163,6 +198,9 @@ if __name__ == "__main__":
 
             sampler_cache_dir = project_root_path("fridge_door_open") / "sampler_cache"
             sampler_cache_dir.mkdir(exist_ok=True)
+
+            image_log_dir = project_root_path("fridge_door_open") / "image_log"
+            image_log_dir.mkdir(exist_ok=True)
 
             if args.mode == "resume":
                 cache_path = sampler_cache_dir / f"cache_{args.cache}.pkl"
@@ -223,6 +261,15 @@ if __name__ == "__main__":
                 with open(file_path, "wb") as f:
                     pickle.dump(sampler, f)
                 rospy.loginfo(f"saved sampler to {file_path}")
+
+                # save the image log
+                init_image_file = image_log_dir / f"image_{n_iter}_init.png"
+                final_image_file = image_log_dir / f"image_{n_iter}_final.png"
+                cv2.imwrite(str(init_image_file), executor.init_image_cache)
+                cv2.imwrite(str(final_image_file), executor.final_image_cache)
+                rospy.loginfo(f"saved image to {init_image_file}")
+                rospy.loginfo(f"saved image to {final_image_file}")
+
     else:
         # here we use the recorded ref_to_base pose
         param = DMPParameter()
