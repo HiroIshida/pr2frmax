@@ -85,9 +85,9 @@ class RolloutExecutor:
 
     def cleanup(self, tf_ref_to_base: RichTrasnform) -> None:
         q_list, _ = self.cleaup_motion.get_dmp_trajectory_pr2(
-            tf_ref_to_base, None, self.ri.angle_vector(), arm="rarm", n_sample=10
+            tf_ref_to_base, None, self.ri.angle_vector(), arm="rarm", n_sample=20
         )
-        self.ri.angle_vector_sequence(list(q_list), [0.5] * len(q_list))
+        self.ri.angle_vector_sequence(list(q_list), [0.15] * len(q_list))
         self.ri.wait_interpolation()
 
     def rollout(
@@ -126,8 +126,8 @@ class RolloutExecutor:
 
         for q, g in zip(qs, gs):
             self.ri.move_gripper("larm", g - 0.01, effort=100)
-            av_time = 0.8 if slow else 0.4
-            sleep_time = 0.5 if slow else 0.2
+            av_time = 0.7 if slow else 0.4
+            sleep_time = 0.45 if slow else 0.2
             self.ri.angle_vector(q, time=av_time)
             time.sleep(sleep_time)
 
