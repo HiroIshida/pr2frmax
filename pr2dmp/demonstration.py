@@ -12,6 +12,7 @@ from plainmp.utils import set_robot_state
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 from skrobot.coordinates.math import matrix2quaternion, wxyz2xyzw, xyzw2wxyz
+from skrobot.model.joint import RotationalJoint
 
 from pr2dmp.utils import RichTrasnform
 
@@ -103,6 +104,23 @@ class Demonstration:
         )
 
         q_list = [np.array(q) for q in dic["q_list"]]
+
+        # map infinite to -pi, pi
+        robot_model = PR2LarmSpec().get_robot_model(with_mesh=False)
+        indices_infinite = []
+        for i, joint in enumerate(robot_model.joint_list):
+            if isinstance(joint, RotationalJoint):
+                is_infinite = joint.min_angle == -np.inf or joint.max_angle == np.inf
+                if is_infinite:
+                    indices_infinite.append(i)
+
+        def normalize_angle(a):
+            return (a + np.pi) % (2 * np.pi) - np.pi
+
+        for q in q_list:
+            for idx in indices_infinite:
+                q[idx] = normalize_angle(q[idx])
+
         joint_names = dic["joint_names"]
         gripper_width = dic["gripper_width"]
         if "tf_ref_to_base" in dic:
