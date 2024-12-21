@@ -169,6 +169,10 @@ class RolloutExecutor:
         label = self.get_manual_annotation()
         if label:
             self.cleanup(tf_ref_to_base)
+        else:
+            need_cleanup = self.get_manual_annotation()
+            if need_cleanup:
+                self.cleanup(tf_ref_to_base)
         return label
 
 
@@ -193,8 +197,8 @@ if __name__ == "__main__":
         else:
             n_param = 30 + 10
             ls_param = np.ones(n_param) * 10
-            ls_err = np.array([0.015, 0.015, np.deg2rad(5.0)])
-            situ_sampler = UniformSituationSampler(-ls_err * 4, ls_err * 4)
+            ls_err = np.array([0.015, 0.015, np.deg2rad(3.0)])
+            situ_sampler = UniformSituationSampler(-ls_err * 6, ls_err * 6)
 
             sampler_cache_dir = project_root_path("fridge_door_open") / "sampler_cache"
             sampler_cache_dir.mkdir(exist_ok=True)
@@ -221,7 +225,7 @@ if __name__ == "__main__":
                 Y = [True]
                 for i in range(5):
                     speak(f"initial sampling number {i}")
-                    e = situ_sampler() * 0.5
+                    e = situ_sampler()
                     label = executor.rollout(param_init, e, args.slow)
                     if label is None:
                         sys.exit()
