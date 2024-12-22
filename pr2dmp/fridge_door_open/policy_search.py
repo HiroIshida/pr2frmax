@@ -34,7 +34,7 @@ from pr2dmp.demonstration import (
     project_root_path,
     resolve_initial_joint_positions,
 )
-from pr2dmp.example.fridge_detector import FridgeDetector
+from pr2dmp.fridge_door_open.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,

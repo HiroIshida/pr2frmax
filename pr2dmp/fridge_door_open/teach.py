@@ -7,7 +7,7 @@ from skrobot.models.pr2 import PR2
 
 from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
 from pr2dmp.demonstration import Demonstration
-from pr2dmp.example.fridge_detector import FridgeDetector
+from pr2dmp.fridge_door_open.fridge_detector import FridgeDetector
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
