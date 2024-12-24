@@ -285,18 +285,13 @@ class Demonstration:
         self.dmp_cache[param_byte] = dmp_trajectory
         return dmp_trajectory
 
-    def get_dmp_trajectory_pr2(
+    def get_dmp_trajectory_ef(
         self,
         tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
         tf_ap_to_aphat: Optional[RichTrasnform] = None,  # NONE only for debug
-        q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
-        *,
-        arm: Literal["larm", "rarm"] = "larm",
         param: Optional[DMPParameter] = None,
         tf_obsref_to_ref: Optional[RichTrasnform] = None,
-        n_sample: int = 40,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-
+    ) -> List[RichTrasnform]:
         if tf_ref_to_base is None:
             tf_ref_to_base = self.tf_ref_to_base  # for debug
 
@@ -308,7 +303,7 @@ class Demonstration:
             tf_ap_to_aphat = self.tf_ap_to_aphat
 
         dmp_traj = self.get_dmp_trajectory(param)
-        cartesian_traj, gripper_traj = np.split(dmp_traj, [7], axis=1)
+        cartesian_traj, _ = np.split(dmp_traj, [7], axis=1)
         assert isinstance(cartesian_traj, np.ndarray)
 
         tf_ef_to_base_list: List[RichTrasnform] = []
@@ -334,6 +329,26 @@ class Demonstration:
             tf_efhat_to_ef = tf_ef_to_efhat.inv()
             tf_efhat_to_base = tf_efhat_to_ef * tf_efhat_to_base
             tf_efhat_to_base_list.append(tf_efhat_to_base)
+        return tf_efhat_to_base_list
+
+    def get_dmp_trajectory_pr2(
+        self,
+        tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
+        tf_ap_to_aphat: Optional[RichTrasnform] = None,  # NONE only for debug
+        q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
+        *,
+        arm: Literal["larm", "rarm"] = "larm",
+        param: Optional[DMPParameter] = None,
+        tf_obsref_to_ref: Optional[RichTrasnform] = None,
+        n_sample: int = 40,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        tf_efhat_to_base_list = self.get_dmp_trajectory_ef(
+            tf_ref_to_base, tf_ap_to_aphat, param, tf_obsref_to_ref
+        )
+
+        dmp_traj = self.get_dmp_trajectory(param)
+        cartesian_traj, gripper_traj = np.split(dmp_traj, [7], axis=1)
 
         assert arm in ["larm", "rarm"]
         spec = PR2LarmSpec() if arm == "larm" else PR2RarmSpec()
