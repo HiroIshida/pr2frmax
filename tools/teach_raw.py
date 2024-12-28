@@ -5,7 +5,10 @@ from skrobot.interfaces.ros import PR2ROSRobotInterface
 from skrobot.models.pr2 import PR2
 
 from pr2dmp.demonstration import RawDemonstration
-from pr2dmp.pr2_controller_utils import set_arm_controller_mode
+from pr2dmp.pr2_controller_utils import (
+    set_arm_controller_mode,
+    set_head_controller_mode,
+)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -17,6 +20,7 @@ if __name__ == "__main__":
 
     set_arm_controller_mode("rarm", "loose")
     set_arm_controller_mode("larm", "loose")
+    set_head_controller_mode("loose")
     pr2 = PR2()
     ri = PR2ROSRobotInterface(pr2)
 
@@ -34,3 +38,4 @@ if __name__ == "__main__":
 
     set_arm_controller_mode("rarm", "tight")
     set_arm_controller_mode("larm", "tight")
+    set_head_controller_mode("tight")
