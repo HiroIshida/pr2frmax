@@ -48,16 +48,18 @@ class Executor:
         self.ri.wait_interpolation()
         tf_ap_to_aphat = self.april_offset_detector.get_gripper_offset()
         qs, gs = self.demo.get_dmp_trajectory_pr2(
-            tf_ref_to_base, tf_ap_to_aphat, q_whole_init, param=self.param
+            tf_ref_to_base, tf_ap_to_aphat, q_whole_init, param=self.param, n_sample=20
         )
 
-        slow = False
-        for q, g in zip(qs, gs):
-            self.ri.move_gripper("larm", g - 0.01, effort=100)
-            av_time = 0.7 if slow else 0.4
-            sleep_time = 0.45 if slow else 0.2
-            self.ri.angle_vector(q, time=av_time)
-            time.sleep(sleep_time)
+        init_gripper_pos = 0.05
+        self.ri.move_gripper("larm", init_gripper_pos)
+        self.ri.wait_interpolation()
+        scale = 1.0
+        self.ri.angle_vector_sequence(list(qs), times=[0.3 * scale] * len(qs))
+        time.sleep(2 * scale)
+        self.ri.move_gripper("larm", 0.01, effort=100)
+        time.sleep(2 * scale)
+        self.ri.move_gripper("larm", 0.03, effort=100)
 
 
 if __name__ == "__main__":
