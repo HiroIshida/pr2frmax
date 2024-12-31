@@ -82,6 +82,7 @@ class FridgePoseProvider:
             rospy.loginfo(f"obtained cloud and segm with {t_cloud_diff}, {t_segm_diff} [s] delay")
         down = fridge_cloud[np.arange(0, fridge_cloud.shape[0], 12)]
         down = down[down[:, 2] < 1.4]
+        down = down[down[:, 2] > 0.2]
 
         dbscan = DBSCAN(eps=0.05, min_samples=3, n_jobs=1, leaf_size=20)
         clusters = dbscan.fit_predict(down)
