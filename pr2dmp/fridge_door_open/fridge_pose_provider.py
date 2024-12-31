@@ -3,6 +3,7 @@ from typing import ClassVar, Optional
 
 import numpy as np
 import rospy
+from jsk_recognition_msgs.msg import BoundingBox
 from plainmp.psdf import BoxSDF, Pose
 from scipy.optimize import minimize
 from sklearn.cluster import DBSCAN
@@ -15,14 +16,14 @@ from pr2dmp.utils import RichTrasnform
 
 
 class FridgeEnv:
-    fridge_size: ClassVar[np.ndarray] = np.array([0.59, 0.54, 1.58])
+    fridge_size: ClassVar[np.ndarray] = np.array([0.59, 0.54, 1.48])
 
     def __init__(self):
         self.fridge_model = Box(self.fridge_size)
 
-        left_redzone = Box([0.59, 2.0, 1.58], face_colors=[255, 0, 0, 200])
+        left_redzone = Box([0.59, 2.0, 1.48], face_colors=[255, 0, 0, 200])
         left_redzone.translate([0.0, 1.3, 0])
-        right_redzone = Box([0.59, 2.0, 1.58], face_colors=[255, 0, 0, 200])
+        right_redzone = Box([0.59, 2.0, 1.48], face_colors=[255, 0, 0, 200])
         right_redzone.translate([-0.15, -1.0 - 0.54 * 0.5 - 0.2, 0])
         table_redzone = Box([3.0, 2.0, 1.0], face_colors=[255, 0, 0, 200])
         table_redzone.translate([-2.5, 2.0, 0.0])
@@ -50,6 +51,9 @@ class FridgePoseProvider:
     def __init__(self, verbose: bool = False, is_dummy: bool = False):
         self.cloud_prov = PointCloudProvider(is_dummy=is_dummy)
         self.segm_prov = FridgeSegmProvider(is_dummy=is_dummy)
+        self.est_fridge_pub = rospy.Publisher(
+            "est_fridge_box", BoundingBox, latch=True, queue_size=1
+        )
         self.verbose = verbose
         self.debug_selected_points = None
         self.stop_flag = True
@@ -77,6 +81,7 @@ class FridgePoseProvider:
             t_segm_diff = t_now - t_segm
             rospy.loginfo(f"obtained cloud and segm with {t_cloud_diff}, {t_segm_diff} [s] delay")
         down = fridge_cloud[np.arange(0, fridge_cloud.shape[0], 12)]
+        down = down[down[:, 2] < 1.4]
 
         dbscan = DBSCAN(eps=0.05, min_samples=3, n_jobs=1, leaf_size=20)
         clusters = dbscan.fit_predict(down)
@@ -129,13 +134,25 @@ class FridgePoseProvider:
         self.start()
         selected_points = self._get_relevant_points()
         x, y, yaw = self._fit_fridge_position(selected_points)
+
+        # self.est_fridge_pub.publish(
         return np.array([x, y, yaw])
 
     def get_transform(self) -> RichTrasnform:
         x, y, yaw = self.get()
-        print(f"fridge pose: {x}, {y}, {yaw}")
         mat = rpy_matrix(yaw, 0, 0)
         tf_fridge = RichTrasnform([x, y, 0], mat, "fridge", "base_footprint")
+
+        # debug publish bounding box
+        bbox = BoundingBox()
+        bbox.header.stamp = rospy.Time.now()
+        bbox.header.frame_id = "base_footprint"
+        bbox.pose = tf_fridge.to_ros_pose()
+        bbox.pose.position.z += 0.5 * FridgeEnv.fridge_size[2]
+        bbox.dimensions.x = FridgeEnv.fridge_size[0]
+        bbox.dimensions.y = FridgeEnv.fridge_size[1]
+        bbox.dimensions.z = FridgeEnv.fridge_size[2]
+        self.est_fridge_pub.publish(bbox)
         return tf_fridge
 
     def save_debug_data(self):
