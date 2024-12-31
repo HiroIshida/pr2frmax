@@ -1,4 +1,3 @@
-import pickle
 import time
 from typing import Optional
 
@@ -12,25 +11,31 @@ from pr2dmp.demonstration import (
     RawDemonstration,
     project_root_path,
 )
-from pr2dmp.fridge_door_open import fridge_detector
+from pr2dmp.fridge_door_open.fridge_pose_provider import FridgePoseProvider
+from pr2dmp.pr2_controller_utils import (
+    set_arm_controller_mode,
+    set_gripper_controller_mode,
+    set_head_controller_mode,
+)
 
 
 class Executor:
     def __init__(self, ri: PR2ROSRobotInterface):
-        sampler_cache_dir = project_root_path("fridge_door_open") / "sampler_cache"
-        idx_cache = 280
-        cache_path = sampler_cache_dir / f"opt_param_{idx_cache}.pkl"
-        with open(cache_path, "rb") as f:
-            opt_param_vec = pickle.load(f)
+        project_root_path("fridge_door_open") / "sampler_cache"
+        # idx_cache = 280
+        # cache_path = sampler_cache_dir / f"opt_param_{idx_cache}.pkl"
+        # with open(cache_path, "rb") as f:
+        #     opt_param_vec = pickle.load(f)
 
         param = DMPParameter()
-        param.forcing_term_pos = opt_param_vec[:30].reshape(3, 10)
-        param.gripper_forcing_term = opt_param_vec[30:].reshape(1, 10)
+        # param.forcing_term_pos = opt_param_vec[:30].reshape(3, 10)
+        # param.gripper_forcing_term = opt_param_vec[30:].reshape(1, 10)
 
         demo = Demonstration.load("fridge_door_open", "open")
         demo.get_dmp_trajectory(param)  # cache for next time
         self.demo = demo
-        self.fridge_detector = fridge_detector.FridgeDetector()
+        self.pose_provider = FridgePoseProvider()
+        self.pose_provider.start()
         self.april_offset_detector = AprilOffsetDetector()
         self.ri = ri
         self.param = param
@@ -38,7 +43,7 @@ class Executor:
     def execute(self, q_whole_init: Optional[np.ndarray] = None):
         if q_whole_init is None:
             q_whole_init = self.ri.angle_vector()
-        tf_ref_to_base = self.fridge_detector.get_current_transform()
+        tf_ref_to_base = self.pose_provider.get_transform()
         ts = time.time()
         qs, gs = self.demo.get_dmp_trajectory_pr2(
             tf_ref_to_base, None, q_whole_init, param=self.param
@@ -65,7 +70,13 @@ class Executor:
 if __name__ == "__main__":
     from skrobot.models.pr2 import PR2
 
-    pr2 = PR2()
+    set_arm_controller_mode("rarm", "tight")
+    set_arm_controller_mode("larm", "tight")
+    set_gripper_controller_mode("rarm", "tight")
+    set_gripper_controller_mode("larm", "tight")
+    set_head_controller_mode("tight")
+
+    pr2 = PR2(use_tight_joint_limit=False)
     ri = PR2ROSRobotInterface(pr2)
     rdemo = RawDemonstration.load("fridge_door_open", "init")
     ri.angle_vector(rdemo.q_list[0])

@@ -7,7 +7,7 @@ from skrobot.models.pr2 import PR2
 
 from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
 from pr2dmp.demonstration import Demonstration
-from pr2dmp.fridge_door_open.fridge_detector import FridgeDetector
+from pr2dmp.fridge_door_open.fridge_pose_provider import FridgePoseProvider
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     # tight => to measure the gripper width
 
     arm = args.arm
-    do_claib = not args.nocalib
+    do_calib = not args.nocalib
     pr2.angle_vector(ri.angle_vector())
     q_list = []
     gw_list = []
@@ -46,10 +46,10 @@ if __name__ == "__main__":
         if key == "q":
             break
         if len(q_list) == 0:
-            fridge_detector = FridgeDetector()
-            tf_fridge_to_basefootprint = fridge_detector.get_current_transform()
-
-            if do_claib:
+            fridge_provider = FridgePoseProvider(verbose=True)
+            fridge_provider.start()
+            tf_fridge_to_basefootprint = fridge_provider.get_transform()
+            if do_calib:
                 offset_detector = AprilOffsetDetector(debug=True)
                 tf_ap_to_aphat = offset_detector.get_gripper_offset()
             else:
