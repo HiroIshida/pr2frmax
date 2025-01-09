@@ -1,20 +1,16 @@
 import time
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 import cv2
 import numpy as np
-import pyransac3d as pyrsc
 import rospy
 from jsk_recognition_msgs.msg import BoundingBox
-from plainmp.psdf import BoxSDF, Pose
-from scipy.optimize import minimize
 from sklearn.cluster import DBSCAN
 from skrobot.coordinates import Coordinates
-from skrobot.coordinates.math import rpy_matrix
-from skrobot.model.primitives import Box
+from skrobot.model.primitives import Axis, Box
 
 from pr2dmp.common_node.common_provider import FridgeSegmProvider, PointCloudProvider
-from pr2dmp.utils import RichTrasnform
+from pr2dmp.ransac import fit_plane_axis_aligned
 
 
 class FridgeEnv:
@@ -75,22 +71,25 @@ class FridgePoseProvider:
         self.reset()
         self.start()
         selected_points = self._get_relevant_points()
-        plane1 = pyrsc.Plane()
         ts = time.time()
-        coeffs, indices_inliers = plane1.fit(selected_points, 0.008)
+        coeffs, indices_inliers = fit_plane_axis_aligned(selected_points, 0.01)
         print(f"fitting time: {time.time() - ts}")
         self.inliers = selected_points[indices_inliers]
 
-        normal = coeffs[:3]
-        normal = normal / np.linalg.norm(normal)
-        dist = coeffs[3] * -1
+        # chekc if inliers are on the same plane
+        A, B, C, D = coeffs
+        assert abs(A**2 + B**2 + C**2 - 1) < 1e-5
+        norm_abc = np.linalg.norm([A, B, C])
+        normal = -np.array([A, B, C]) / norm_abc
+        dist = D
         if normal[0] < 0:
             normal = -normal
-            dist *= -1
+            dist = -dist
+
         ex = normal
-        print(f"ex: {ex}")
-        ez = np.array([0, 0, 1])
-        ey = np.cross(ez, ex)
+        ez_tmp = np.array([0, 0, 1])
+        ey = np.cross(ez_tmp, ex) / np.linalg.norm(np.cross(ez_tmp, ex))
+        ez = np.cross(ex, ey)
 
         # take dot produce of ey and inliner points to get min and max
         y_coords = np.dot(ey, self.inliers.T)
@@ -99,6 +98,8 @@ class FridgePoseProvider:
         pos_global = (dist + 0.5 * FridgeEnv.fridge_size[0]) * ex + 0.5 * (y_min + y_max) * ey
         x_global, y_global = pos_global[:2]
         yaw = np.arctan2(ex[1], ex[0])
+        rotmat = np.array([ex, ey, ez])
+        self.debug_coords = Coordinates(pos_global, rotmat.T)
         return np.array([x_global, y_global, yaw])
 
     def _get_relevant_points(self):
@@ -138,129 +139,12 @@ class FridgePoseProvider:
         self.cloud_prov.save_debug_data()
 
 
-class RegistrationFridgePoseProvider:
-    debug_selected_points: Optional[np.ndarray]
-    stop_flag: bool
-
-    def __init__(self, verbose: bool = False, is_dummy: bool = False):
-        self.cloud_prov = PointCloudProvider(is_dummy=is_dummy)
-        self.segm_prov = FridgeSegmProvider(is_dummy=is_dummy)
-        self.est_fridge_pub = rospy.Publisher(
-            "est_fridge_box", BoundingBox, latch=True, queue_size=1
-        )
-        self.verbose = verbose
-        self.debug_selected_points = None
-        self.stop_flag = True
-
-    def reset(self):
-        self.cloud_prov.reset()
-        self.segm_prov.reset
-
-    def stop(self):
-        self.cloud_prov.stop()
-        self.segm_prov.stop()
-
-    def start(self):
-        self.cloud_prov.start()
-        self.segm_prov.start()
-
-    def _get_relevant_points(self):
-        cloud, t_cloud = self.cloud_prov.get()
-        segm, t_segm = self.segm_prov.get()
-        fridge_cloud = cloud[segm.flatten()]
-        fridge_cloud = fridge_cloud[np.all(np.isfinite(fridge_cloud), axis=1)]
-        if self.verbose:
-            t_now = time.time()
-            t_cloud_diff = t_now - t_cloud
-            t_segm_diff = t_now - t_segm
-            rospy.loginfo(f"obtained cloud and segm with {t_cloud_diff}, {t_segm_diff} [s] delay")
-        down = fridge_cloud[np.arange(0, fridge_cloud.shape[0], 12)]
-        down = down[down[:, 2] < 1.4]
-        down = down[down[:, 2] > 0.2]
-
-        dbscan = DBSCAN(eps=0.05, min_samples=3, n_jobs=1, leaf_size=20)
-        clusters = dbscan.fit_predict(down)
-        n_label = np.max(clusters) + 1
-        largest_indices = None
-        largest_cluster_size = 0
-        for i in range(n_label):
-            indices = np.where(clusters == i)
-            if len(indices[0]) > largest_cluster_size:
-                largest_cluster_size = len(indices[0])
-                largest_indices = indices
-        selected_points = down[largest_indices]
-        self.debug_selected_points = selected_points
-        return selected_points
-
-    def _fit_fridge_position(self, selected_points: np.ndarray):
-        fridge_d, fridge_w, fridge_h = FridgeEnv.fridge_size
-        size = np.array([fridge_d, fridge_w, fridge_h])
-
-        def yaw_matrix(yaw):
-            return np.array(
-                [[np.cos(yaw), -np.sin(yaw), 0], [+np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]]
-            )
-
-        def cost(var: np.ndarray):
-            x, y, yaw = var
-            pose = Pose(np.array([x, y, 0.5 * fridge_h]), yaw_matrix(yaw))
-            box = BoxSDF(size, pose)
-            dist = box.evaluate_batch(selected_points.T)
-            return np.mean(dist**2)
-
-        mean = np.mean(selected_points, axis=0)
-        guess_center = [mean[0] + 0.3, mean[1], 0.0]
-        lb = guess_center - np.array([0.5, 0.5, 0.4 * np.pi])
-        ub = guess_center + np.array([0.5, 0.5, 0.2 * np.pi])
-        var_min = None
-        min_cost = np.inf
-        for _ in range(300):
-            initial_guess = np.random.uniform(lb, ub)
-            f_eval = cost(initial_guess)
-            if f_eval < min_cost:
-                min_cost = f_eval
-                var_min = initial_guess
-
-        res = minimize(cost, var_min, method="Nelder-Mead")
-        return res.x
-
-    def get(self):
-        self.reset()
-        self.start()
-        selected_points = self._get_relevant_points()
-        x, y, yaw = self._fit_fridge_position(selected_points)
-
-        # self.est_fridge_pub.publish(
-        return np.array([x, y, yaw])
-
-    def get_transform(self) -> RichTrasnform:
-        x, y, yaw = self.get()
-        mat = rpy_matrix(yaw, 0, 0)
-        tf_fridge = RichTrasnform([x, y, 0], mat, "fridge", "base_footprint")
-
-        # debug publish bounding box
-        bbox = BoundingBox()
-        bbox.header.stamp = rospy.Time.now()
-        bbox.header.frame_id = "base_footprint"
-        bbox.pose = tf_fridge.to_ros_pose()
-        bbox.pose.position.z += 0.5 * FridgeEnv.fridge_size[2]
-        bbox.dimensions.x = FridgeEnv.fridge_size[0]
-        bbox.dimensions.y = FridgeEnv.fridge_size[1]
-        bbox.dimensions.z = FridgeEnv.fridge_size[2]
-        self.est_fridge_pub.publish(bbox)
-        return tf_fridge
-
-    def save_debug_data(self):
-        self.segm_prov.save_debug_data()
-        self.cloud_prov.save_debug_data()
-
-
 if __name__ == "__main__":
     rospy.init_node("fridge_pose_provider")
     prov = FridgePoseProvider(verbose=False, is_dummy=True)
     ret = prov.get()
 
-    from skrobot.model.primitives import PointCloudLink
+    from skrobot.model.primitives import Axis, PointCloudLink
     from skrobot.models.pr2 import PR2
     from skrobot.viewers import PyrenderViewer
 
@@ -271,6 +155,7 @@ if __name__ == "__main__":
     env.set_fridge_pose(ret)
     v.add(env.fridge_model)
     v.add(pr2)
+    v.add(Axis.from_coords(prov.debug_coords))
     v.add(PointCloudLink(prov.inliers))
     v.show()
     import time
