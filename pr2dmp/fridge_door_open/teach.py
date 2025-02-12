@@ -46,12 +46,14 @@ if __name__ == "__main__":
         if key == "q":
             break
         if len(q_list) == 0:
-            fridge_provider = FridgePoseProvider(verbose=True)
-            fridge_provider.start()
+            fridge_provider = FridgePoseProvider()
+            fridge_provider.reset()
             tf_fridge_to_basefootprint = fridge_provider.get_transform()
+            print(f"tf_fridge_to_basefootprint: {tf_fridge_to_basefootprint}")
             if do_calib:
                 offset_detector = AprilOffsetDetector(debug=True)
                 tf_ap_to_aphat = offset_detector.get_gripper_offset()
+                print(f"tf_ap_to_aphat: {tf_ap_to_aphat}")
             else:
                 tf_ap_to_aphat = RichTrasnform(np.zeros(3), np.eye(3), "apriltag", "apriltag_hat")
 

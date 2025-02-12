@@ -34,7 +34,7 @@ from pr2dmp.demonstration import (
     project_root_path,
     resolve_initial_joint_positions,
 )
-from pr2dmp.fridge_door_open.fridge_detector import FridgeDetector
+from pr2dmp.fridge_door_open.fridge_pose_provider import FridgePoseProvider
 from pr2dmp.pr2_controller_utils import (
     set_arm_controller_mode,
     set_gripper_controller_mode,
@@ -86,7 +86,7 @@ class RolloutExecutor:
         robot.angle_vector(ri.angle_vector())
         torso_current_height = robot.torso_lift_joint.joint_angle()
 
-        detector = FridgeDetector()
+        fridge_provider = FridgePoseProvider()
         april_detector = AprilOffsetDetector(debug=True)
         image_provider = ImageProvider()
 
@@ -97,7 +97,7 @@ class RolloutExecutor:
 
         self.demo = demo
         self.ri = ri
-        self.detector = detector
+        self.fridge_provider = fridge_provider
         self.april_detector = april_detector
         self.image_provider = image_provider
         self.init_image_cache = None
@@ -139,7 +139,7 @@ class RolloutExecutor:
         self.init_image_cache = self.image_provider.get_image()
 
         # observe the fridge and apriltag
-        tf_ref_to_base = self.detector.get_current_transform()
+        tf_ref_to_base = self.fridge_provider.get_transform()
         tf_ap_to_aphat = self.april_detector.get_gripper_offset()
 
         param = DMPParameter()
@@ -193,7 +193,8 @@ if __name__ == "__main__":
     if args.mode in ("dry", "train", "resume"):
         executor = RolloutExecutor(demo)
         if args.mode == "dry":
-            executor.rollout(None, None, args.slow)
+            while True:
+                executor.rollout(None, None, args.slow)
         else:
             n_param = 30 + 10
             ls_param = np.ones(n_param) * 10
