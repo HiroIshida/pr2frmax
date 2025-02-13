@@ -1,17 +1,26 @@
+import copy
+import functools
 import json
-import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import numpy as np
-from movement_primitives.dmp import DMP, CartesianDMP
+from frmax2.dmp import determine_dmp_metric
+from frmax2.metric import Metric
+from movement_primitives.dmp import DMP
 from plainmp.ik import IKConfig, solve_ik
 from plainmp.robot_spec import Coordinates, PR2LarmSpec, PR2RarmSpec, PR2SpecBase
 from plainmp.utils import set_robot_state
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
-from skrobot.coordinates.math import matrix2quaternion, wxyz2xyzw, xyzw2wxyz
+from skrobot.coordinates.math import (
+    matrix2quaternion,
+    quaternion2matrix,
+    rpy_matrix,
+    wxyz2xyzw,
+    xyzw2wxyz,
+)
 from skrobot.model.joint import RotationalJoint
 
 from pr2dmp.utils import RichTrasnform
@@ -30,33 +39,6 @@ def project_root_path(project_name: str) -> Path:
 
 
 @dataclass
-class DMPParameter:
-    forcing_term_pos: Optional[np.ndarray] = None
-    forcing_term_rot: Optional[np.ndarray] = None
-    gripper_forcing_term: Optional[np.ndarray] = None
-    goal_pos_diff: Optional[np.ndarray] = None
-    # NOTE: goal rot diff is not used in the current implementation
-
-    def to_vector(self) -> np.ndarray:
-        if self.forcing_term_pos is None:
-            self.forcing_term_pos = np.zeros((3, 10))
-        if self.forcing_term_rot is None:
-            self.forcing_term_rot = np.zeros((3, 10))
-        if self.gripper_forcing_term is None:
-            self.gripper_forcing_term = np.zeros(10)
-        if self.goal_pos_diff is None:
-            self.goal_pos_diff = np.zeros(3)
-        return np.hstack(
-            [
-                self.forcing_term_pos.flatten(),
-                self.forcing_term_rot.flatten(),
-                self.gripper_forcing_term,
-                self.goal_pos_diff,
-            ]
-        )
-
-
-@dataclass
 class Demonstration:
     ef_frame: str
     ref_frame: str
@@ -65,7 +47,6 @@ class Demonstration:
     joint_names: List[str]
     gripper_width_list: List[float]
     tf_ref_to_base: RichTrasnform
-    dmp_cache: Dict[str, np.ndarray] = None
 
     def __len__(self) -> int:
         return len(self.q_list)
@@ -170,11 +151,15 @@ class Demonstration:
         assert len(vec_list) == n_wp_resample
         return np.array(vec_list)
 
-    def get_dmp_trajectory(self, param: Optional[DMPParameter] = None) -> np.ndarray:
-        param_byte = pickle.dumps(param)
-        if self.dmp_cache is not None and param_byte in self.dmp_cache:
-            return self.dmp_cache[param_byte]
+    @classmethod
+    @functools.lru_cache(maxsize=None)
+    def _default_rbf_metric(cls, num_basis: int) -> Metric:
+        return determine_dmp_metric(num_basis, np.array([0.03, 0.03, 0.03, 0.3, 0.02]))
 
+    def default_rbf_metric(self) -> Metric:
+        return copy.deepcopy(self._default_rbf_metric(10))
+
+    def get_dmp_trajectory(self, param: Optional[np.ndarray] = None) -> np.ndarray:
         model = PR2LarmSpec().get_robot_model()  # model is same for both arms
 
         # compute tf_ef_to_ref_list
@@ -245,51 +230,40 @@ class Demonstration:
                 vec = np.hstack([pos, quat])
                 vec_list.append(vec)
 
-        exec_time = 1.0
-        dt = 0.01
-        n_weights_per_dim = 10
-        T = np.linspace(0, 1, 101)
-
-        cartesian_dmp = CartesianDMP(
-            exec_time, dt=dt, n_weights_per_dim=n_weights_per_dim, int_dt=0.0001
-        )
-        Y = np.array(vec_list)
-        cartesian_dmp.imitate(T, Y)
-        cartesian_dmp.configure(start_y=Y[0], goal_y=Y[-1])
-
         gripper_traj_resampled = self.get_interpolated(
             np.array(self.gripper_width_list).reshape(-1, 1), 101
         )
-        gripper_dmp = DMP(
-            1, execution_time=exec_time, dt=dt, n_weights_per_dim=n_weights_per_dim, int_dt=0.0001
-        )
-        gripper_dmp.imitate(T, gripper_traj_resampled)
-        gripper_dmp.configure(start_y=gripper_traj_resampled[0], goal_y=gripper_traj_resampled[-1])
 
+        # I'm very lazy, so I use DMP on behalf of the weighted gaussian sum
+        # this dmp for bias trajectory of [pos, rot_angle, gripper]
+        n_weights_per_dim = 10
+        dmp = DMP(5, execution_time=1.0, n_weights_per_dim=n_weights_per_dim, dt=0.01)
         if param is not None:
-            if param.forcing_term_pos is not None:
-                cartesian_dmp.forcing_term_pos.weights_[:, :] += param.forcing_term_pos
-            if param.forcing_term_rot is not None:
-                cartesian_dmp.forcing_term_rot.weights_[:, :] += param.forcing_term_rot
-            if param.goal_pos_diff is not None:
-                cartesian_dmp.goal_y[:3] += param.goal_pos_diff
-            if param.gripper_forcing_term is not None:
-                gripper_dmp.forcing_term.weights_[:, :] += param.gripper_forcing_term
+            dmp.forcing_term.weights_ += param.reshape(-1, n_weights_per_dim)
+        _, biases = dmp.open_loop()
+        pos_bias = biases[:, :3]
+        rot_bias = biases[:, 3:4].flatten()
+        gripper_bias = biases[:, 4:5]
 
-        _, cdmp_trajectory = cartesian_dmp.open_loop()
-        _, gdmp_trajectory = gripper_dmp.open_loop()
-        dmp_trajectory = np.hstack([cdmp_trajectory, gdmp_trajectory])
+        all_arr = np.hstack([vec_list, gripper_traj_resampled])
+        assert all_arr.shape[1] == 8
+        all_arr[:, :3] += pos_bias
 
-        if self.dmp_cache is None:
-            self.dmp_cache = {}
-        self.dmp_cache[param_byte] = dmp_trajectory
-        return dmp_trajectory
+        for i in range(101):
+            q_wxyz = all_arr[i, 3:7]
+            mat_nominal_to_world = quaternion2matrix(q_wxyz)
+            mat_biased_to_nominal = rpy_matrix(rot_bias[i], 0, 0)
+            mat_biased_to_world = mat_biased_to_nominal @ mat_nominal_to_world
+            q_wxyz_biased = matrix2quaternion(mat_biased_to_world)
+            all_arr[i, 3:7] = q_wxyz_biased
+        all_arr[:, 7] += gripper_bias.flatten()
+        return all_arr
 
     def get_dmp_trajectory_ef(
         self,
         tf_ref_to_base: Optional[RichTrasnform] = None,  # NONE only for debug
         tf_ap_to_aphat: Optional[RichTrasnform] = None,  # NONE only for debug
-        param: Optional[DMPParameter] = None,
+        param: Optional[np.ndarray] = None,
         tf_obsref_to_ref: Optional[RichTrasnform] = None,
     ) -> List[RichTrasnform]:
         if tf_ref_to_base is None:
@@ -338,7 +312,7 @@ class Demonstration:
         q_whole_init: Optional[np.ndarray] = None,  # NONE only for debug
         *,
         arm: Literal["larm", "rarm"] = "larm",
-        param: Optional[DMPParameter] = None,
+        param: Optional[np.ndarray] = None,
         tf_obsref_to_ref: Optional[RichTrasnform] = None,
         n_sample: int = 40,
     ) -> Tuple[np.ndarray, np.ndarray]:

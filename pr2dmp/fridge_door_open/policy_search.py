@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import rospy
 from cv_bridge import CvBridge
+from fridge73b2_utils.model import SimplifiedFridgeModel
 from frmax2.core import (
     CompositeMetric,
     DGSamplerConfig,
@@ -23,14 +24,12 @@ from plainmp.robot_spec import PR2RarmSpec
 from sensor_msgs.msg import CompressedImage
 from skrobot.coordinates.math import rpy_matrix
 from skrobot.interfaces.ros import PR2ROSRobotInterface
-from skrobot.model.primitives import Axis
 from skrobot.models.pr2 import PR2
 from skrobot.viewers import PyrenderViewer
 
 from pr2dmp.common_node.gripper_offset_detector import AprilOffsetDetector
 from pr2dmp.demonstration import (
     Demonstration,
-    DMPParameter,
     project_root_path,
     resolve_initial_joint_positions,
 )
@@ -142,9 +141,7 @@ class RolloutExecutor:
         tf_ref_to_base = self.fridge_provider.get_transform()
         tf_ap_to_aphat = self.april_detector.get_gripper_offset()
 
-        param = DMPParameter()
-        param.forcing_term_pos = param_vec[:30].reshape(3, 10)
-        param.gripper_forcing_term = param_vec[30:].reshape(1, 10)
+        param = np.zeros(5 * 10)
 
         x_err, y_err, yaw_err = error
         rotmat = rpy_matrix(yaw_err, 0, 0)
@@ -277,16 +274,19 @@ if __name__ == "__main__":
 
     else:
         # here we use the recorded ref_to_base pose
-        param = DMPParameter()
-        param.forcing_term_pos = np.random.uniform(-30, 30, (3, 10))
+        metric = demo.default_rbf_metric()
+        param = metric.generate_random_inball(np.zeros(10 * 5), 1)[0]
         tf_obsref_to_ref = RichTrasnform.from_xytheta(-0.0, +0.0, 0.0, "fridge", "fridge")
         qs, gs = demo.get_dmp_trajectory_pr2(
             tf_obsref_to_ref=tf_obsref_to_ref, n_sample=15, param=param
         )
         viewer = PyrenderViewer()
         viewer.add(robot)
-        axis = Axis.from_coords(demo.tf_ref_to_base.to_coordinates())
-        viewer.add(axis)
+        # axis = Axis.from_coords(demo.tf_ref_to_base.to_coordinates())
+        fridge_model = SimplifiedFridgeModel()
+        fridge_model.fridge_model.newcoords(demo.tf_ref_to_base.to_coordinates())
+
+        viewer.add(fridge_model.fridge_model)
         viewer.show()
         time.sleep(2)
         for q in qs:
